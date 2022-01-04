@@ -26,8 +26,11 @@ metadata {
         capability "Refresh"
         capability "Sensor"
         capability "Initialize"
-        capability "Thermostat"
 		capability "Temperature Measurement"
+        capability "Thermostat"
+        capability "ThermostatMode"   
+        capability "ThermostatHeatingSetpoint"
+        capability "ThermostatSetpoint"        
         
         command "test"
         command "initialize"
@@ -81,19 +84,19 @@ def parse(String description) {
             try {
                 fncmd = zigbee.convertHexToInt(descMap?.data[6..-1].join(''))
             } catch (e) {}
-            log.trace "fncmd = ${fncmd}"
+            //log.trace "fncmd = ${fncmd}"
             if (dp == state.old_dp && fncmd == state.old_fncmd) {
                 log.warn "(duplicate) dp=${dp}  fncmd=${fncmd}"
                 return
             }
-            log.debug "dp=${dp} fncmd=${fncmd}"
+            //log.trace "dp=${dp} fncmd=${fncmd}"
             state.old_dp = dp
             state.old_fncmd = fncmd
 
             switch (dp) {
                 case 0x01: // 0x01: Heat / Off
                     def mode = (fncmd == 0) ? "off" : "heat"
-                    log.debug "mode: ${mode}"
+                    log.info "Thermostat mode reported is: ${mode}"
                     sendEvent(name: "thermostatMode", value: mode, displayed: true)
                     if (mode == state.mode) {
                         state.mode = ""
@@ -101,35 +104,35 @@ def parse(String description) {
                     break
                 case 0x10: // 0x10: Target Temperature
                     def setpointValue = fncmd
-                    log.debug "target temp: ${setpointValue}"
+                    log.debug "heatingSetpoint reported is: ${setpointValue}"
                     sendEvent(name: "heatingSetpoint", value: setpointValue as int, unit: "C", displayed: true)
                     sendEvent(name: "coolingSetpoint", value: setpointValue as int, unit: "C", displayed: false)
                     if (setpointValue == state.setpoint)  {
                         state.setpoint = 0
                     }
                     break
-                case 0x65: // KK also sent to DP 101 ( 0x65 ) !, but is 1 deg. less than the tmp shown on the displa?y... Igonore!
-                    log.info "Ignoring command 0x65 ($fncmd)"
-                    break
                 case 0x18: // 0x18 : Current Temperature
                     def currentTemperatureValue = fncmd// /10  KK was /10     
-                    log.debug "current temp: ${currentTemperatureValue}"
+                    log.info "current temperature reported is: ${currentTemperatureValue}"
                     sendEvent(name: "temperature", value: currentTemperatureValue, unit: "C", displayed: true)
                     break
                 case 0x02: // added KK
                 case 0x03: // 0x03 : Scheduled/Manual Mode
                     if (!(fncmd == 0)) {        // KK inverted
-                        log.warn "scheduled mode"
+                        log.info "Thermostat mode reported is: <b>scheduled</b>!"
                         if (forceManual == "1") {
                             setManualMode()
                         }
                     } else {
-                        log.warn "manual mode"
+                        log.info "Thermostat mode reported is: manual"
                     }
                     break
                 case 0x24: // 0x24 : operating state
-                    log.debug "thermostatOperatingState = ${fncmd}"
+                    log.debug "thermostatOperatingState reported is: ${fncmd ? "idle" : "heating"}"
                     sendEvent(name: "thermostatOperatingState", value: (fncmd ? "idle" : "heating"), displayed: true)
+                    break
+                case 0x65: // KK
+                    log.info "Thermostat PID regulation point is: ${fncmd}"
                     break
                 default:
                     log.warn "NOT PROCESSED Tuya cmd: dp=${dp} value=${fncmd} descMap.data = ${descMap?.data}" 
@@ -143,9 +146,22 @@ def parse(String description) {
 
 def setThermostatMode(mode){
     log.debug "setThermostatMode(${mode})"
-    state.mode = mode
-    runIn(4, modeReceiveCheck, [overwrite:true])
-    sendTuyaCommand("01", DP_TYPE_BOOL, (mode=="heat")?"01":"00")
+    switch (mode) {
+        case "auto" :
+        case "heat" :
+        case "emergency heat" :
+            state.mode = "heat"
+            break
+        case "off" :
+        case "cool" :
+            state.mode = "off"
+            break
+        default:
+            log.warn "Unsupported mode ${mode}"
+            return
+    }
+    runIn(4, modeReceiveCheck, [overwrite:true])    // KK check!
+    sendTuyaCommand("01", DP_TYPE_BOOL, mode=="heat" ? "01" : "00")
 }
 
 def setHeatingSetpoint(temperature){
@@ -154,7 +170,7 @@ def setHeatingSetpoint(temperature){
     settemp += (settemp != temperature && temperature > device.currentValue("heatingSetpoint")) ? 1 : 0
     log.debug "change setpoint to ${settemp}"
     state.setpoint = settemp
-    runIn(4, setpointReceiveCheck, [overwrite:true])  
+    runIn(4, setpointReceiveCheck, [overwrite:true])      // KK check!
     sendTuyaCommand("10", DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8))
 }
 
@@ -173,6 +189,15 @@ def off(){
 def on() {
     heat()
 }
+
+def setThermostatFanMode(fanMode) { sendEvent(name: "thermostatFanMode", value: "${fanMode}", descriptionText: getDescriptionText("thermostatFanMode is ${fanMode}")) }
+
+def auto() { setThermostatMode("heat") }
+def emergencyHeat() { setThermostatMode("heat") }
+def cool() { setThermostatMode("off") }
+def fanAuto() { setThermostatFanMode("auto") }
+def fanCirculate() { setThermostatFanMode("circulate") }
+def fanOn() { setThermostatFanMode("on") }
 
 def setManualMode() {
     log.debug "setManualMode()"
@@ -197,7 +222,48 @@ def installed() {
 }
 
 def updated() {
-    log.info "updated()"
+    log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue("model")}"
+    log.info "Debug logging is <b>${logEnable}</b> Description text logging is  <b>${txtEnable}</b>"
+    if (logEnable==true) {
+        runIn(1800, logsOff)    // turn off debug logging after 30 minutes
+    }
+    else {
+        unschedule(logsOff)
+    }
+    log.info "Update finished"
+}
+
+def refresh() {
+    if (logEnable) {log.debug "refresh()..."}
+    //poll()
+}
+
+void initializeVars() {
+    log.debug "${device.displayName} UnitializeVars()..."
+    state.clear()
+}
+
+def logInitializeRezults() {
+/*    
+    log.info "${device.displayName} switchPollingSupported  = ${state.switchPollingSupported}"
+    log.info "${device.displayName} voltagePollingSupported = ${state.voltagePollingSupported}"
+    log.info "${device.displayName} currentPollingSupported = ${state.currentPollingSupported}"
+    log.info "${device.displayName} powerPollingSupported   = ${state.powerPollingSupported}"
+    log.info "${device.displayName} energyPollingSupported  = ${state.energyPollingSupported}"
+*/
+    log.info "${device.displayName} Initialization finished"
+}
+
+def configure() {
+    initialize()
+}
+
+def initialize() {
+    log.info "${device.displayName} Initialize()..."
+    unschedule()
+    initializeVars()
+    updated()
+    runIn( 5, logInitializeRezults)
 }
 
 def modeReceiveCheck() {
@@ -232,14 +298,18 @@ private sendTuyaCommand(dp, dp_type, fncmd) {
 private getPACKET_ID() {
     state.packetID = ((state.packetID ?: 0) + 1 ) % 65536
     return zigbee.convertToHexString(state.packetID, 4)
-    /*
-    def pktId =  zigbee.convertToHexString(state.packetID, 4)
-    log.trace "pktId = ${pktId}"
-    return pktId
-*/
 }
 
+private getDescriptionText(msg) {
+	def descriptionText = "${device.displayName} ${msg}"
+	if (settings?.txtEnable) log.info "${descriptionText}"
+	return descriptionText
+}
 
+def logsOff(){
+    log.warn "debug logging disabled..."
+    device.updateSetting("logEnable",[value:"false",type:"bool"])
+}
 
 
 
