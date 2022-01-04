@@ -42,6 +42,8 @@ metadata {
     preferences {
         input (name: "logEnable", type: "bool", title: "<b>Debug logging</b>", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
         input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
+        input (name: "forceManual", type: "enum", title: "Force Manual Mode : If the thermostat changes to schedule mode, then it automatically reverts to manual mode", options:["0": "Default", "1": "Force Manual Mode"], defaultValue: "0")
+        
     }
 }
 
