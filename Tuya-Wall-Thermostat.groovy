@@ -28,13 +28,14 @@ metadata {
         capability "Initialize"
 		capability "Temperature Measurement"
         capability "Thermostat"
-        capability "ThermostatMode"   
+        //capability "ThermostatMode"   
         capability "ThermostatHeatingSetpoint"
         capability "ThermostatSetpoint"        
         
-        command "test"
-        command "initialize"
 
+        command "initialize"
+        command "operationMode", [ [name: "Mode", type: "ENUM", constraints: ["manual", "program"], description: "Select thermostat mode"] ]        
+        
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_ye5jkfsb",  deviceJoinName: "Tuya Wall Thermostat" 
         
     }
@@ -121,6 +122,7 @@ def parse(String description) {
                     if (!(fncmd == 0)) {        // KK inverted
                         log.info "Thermostat mode reported is: <b>scheduled</b>!"
                         if (forceManual == "1") {
+                            log.trace "calling setManualMode()"
                             setManualMode()
                         }
                     } else {
@@ -201,24 +203,24 @@ def fanOn() { setThermostatFanMode("on") }
 
 def setManualMode() {
     log.debug "setManualMode()"
-    //def cmds = sendTuyaCommand("02", DP_TYPE_ENUM, "00") + sendTuyaCommand("03", DP_TYPE_ENUM, "01")    // iquix code
-    def cmds = /*sendTuyaCommand("02", DP_TYPE_ENUM, "00") +*/ sendTuyaCommand("04", DP_TYPE_ENUM, "02")
-    //def cmds = sendTuyaCommand("02", DP_TYPE_ENUM, "00")        // does not work .. :( 
-    cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }     
+    ArrayList<String> cmds = []
+    cmds = sendTuyaCommand("02", DP_TYPE_ENUM, "00") + sendTuyaCommand("03", DP_TYPE_ENUM, "01")    // iquix code
+    sendZigbeeCommands( cmds )
 }
 
 def installed() {
     log.info "installed()"
-    sendEvent(name: "supportedThermostatModes", value: JsonOutput.toJson(["heat", "off"]), displayed: false)
-    sendEvent(name: "thermostatMode", value: "off", displayed: false)
+    sendEvent(name: "supportedThermostatModes", value:  ["off", "heat"], isStateChange: true, displayed: true)
+    sendEvent(name: "supportedThermostatFanModes", value: ["auto"])    
+    sendEvent(name: "thermostatMode", value: "heat", displayed: false)
     sendEvent(name: "thermostatOperatingState", value: "idle", displayed: false)
-    sendEvent(name: "heatingSetpoint", value: 0, unit: "C", displayed: false)
+    //sendEvent(name: "heatingSetpoint", value: 0, unit: "C", displayed: false)
     //sendEvent(name: "coolingSetpoint", value: 0, unit: "C", displayed: false)
-    sendEvent(name: "temperature", value: 0, unit: "C", displayed: false)
+    //sendEvent(name: "temperature", value: 0, unit: "C", displayed: false)
     state.mode = ""
     state.setpoint = 0
     unschedule()
-    runEvery1Minute(receiveCheck)
+    runEvery1Minute(receiveCheck)    // KK: check
 }
 
 def updated() {
@@ -262,6 +264,7 @@ def initialize() {
     log.info "${device.displayName} Initialize()..."
     unschedule()
     initializeVars()
+    installed()
     updated()
     runIn( 5, logInitializeRezults)
 }
@@ -290,9 +293,19 @@ def receiveCheck() {
 }
 
 private sendTuyaCommand(dp, dp_type, fncmd) {
-    def cmds = zigbee.command(CLUSTER_TUYA, SETDATA, PACKET_ID + dp + dp_type + zigbee.convertToHexString((int)(fncmd.length()/2), 4) + fncmd )
+    ArrayList<String> cmds = []
+    cmds += zigbee.command(CLUSTER_TUYA, SETDATA, PACKET_ID + dp + dp_type + zigbee.convertToHexString((int)(fncmd.length()/2), 4) + fncmd )
     log.trace "sendTuyaCommand = ${cmds}"
-    cmds
+    return cmds
+}
+
+void sendZigbeeCommands(ArrayList<String> cmd) {
+    if (logEnable) {log.debug "sendZigbeeCommands(cmd=$cmd)"}
+    hubitat.device.HubMultiAction allActions = new hubitat.device.HubMultiAction()
+    cmd.each {
+            allActions.add(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE))
+    }
+    sendHubCommand(allActions)
 }
 
 private getPACKET_ID() {
@@ -311,5 +324,22 @@ def logsOff(){
     device.updateSetting("logEnable",[value:"false",type:"bool"])
 }
 
+def operationMode( mode ) {
+    ArrayList<String> cmds = []
+    
+    switch (mode) {
+        case "manual" : 
+            cmds += sendTuyaCommand("02", DP_TYPE_ENUM, "00")// + sendTuyaCommand("03", DP_TYPE_ENUM, "01")    // iquix code
+            log.trace "sending manual mode : ${cmds}"
+            break
+        case "program" :
+            cmds += sendTuyaCommand("02", DP_TYPE_ENUM, "01")// + sendTuyaCommand("03", DP_TYPE_ENUM, "01")    // iquix code
+            log.trace "sending program mode : ${cmds}"
+            break
+        default:
+            break
+    }
+    sendZigbeeCommands( cmds )
+}
 
 
