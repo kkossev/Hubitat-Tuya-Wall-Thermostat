@@ -1,2 +1,2 @@
 # Hubitat-Tuya-Wall-Thermostat
-Hubitat-uya Wall Thermostat
+Hubitat-Tuya Wall Thermostat
