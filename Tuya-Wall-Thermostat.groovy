@@ -22,6 +22,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.0" }
+def timeStamp() {"2022/01/07 12:42 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -219,7 +220,7 @@ def setThermostatMode(mode){
             log.warn "Unsupported mode ${mode}"
             return
     }
-    runIn(4, modeReceiveCheck, [overwrite:true])    // KK check!
+    runIn(4, modeReceiveCheck/*, [overwrite:true]*/)    // KK check!
     sendTuyaCommand("01", DP_TYPE_BOOL, mode=="heat" ? "01" : "00")
 }
 
@@ -229,7 +230,7 @@ def setHeatingSetpoint(temperature){
     settemp += (settemp != temperature && temperature > device.currentValue("heatingSetpoint")) ? 1 : 0
     if (settings?.logEnable) log.debug "${device.displayName} change setpoint to ${settemp}"
     state.setpoint = settemp
-    runIn(4, setpointReceiveCheck, [overwrite:true])      // KK check!
+    runIn(4, setpointReceiveCheck/*, [overwrite:true]*/)      // KK check!
     sendTuyaCommand("10", DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8))
 }
 
@@ -302,7 +303,7 @@ def refresh() {
 
 def logInitializeRezults() {
     log.info "${device.displayName} manufacturer  = ${device.getDataValue("manufacturer")}"
-    if (settings?.txtEnable) log.info "${device.displayName} Initialization finished"
+    log.info "${device.displayName} Initialization finished\r                          version=${version()} (Timestamp:${timeStamp()})"
 }
 
 // called by initialize() button
@@ -336,7 +337,7 @@ def initialize() {
     initializeVars()
     installed()
     updated()
-    runIn( 5, logInitializeRezults)
+    runIn( 3, logInitializeRezults)
 }
 
 def modeReceiveCheck() {
