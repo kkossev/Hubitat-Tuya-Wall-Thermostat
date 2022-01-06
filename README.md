@@ -21,6 +21,11 @@ The current version of the driver can be downloaded from this link: https://raw.
 
 (AE [link](https://www.aliexpress.com/item/4001326539649.html))
 
+## Compatibility
+* Hubitat Elevation dashboards
+* Hubitat mobile app (not tested!)
+* Amazon Alexa (not tested!)
+* Google Home (not tested!)
 
 ## Features
 
