@@ -1,4 +1,4 @@
-# [ALPHA] Tuya Wall Mount Thermostat (Water/Electric Floor Heating) Zigbee driver for Hubitat
+# [Work.In.Progress] Tuya Wall Mount Thermostat (Water/Electric Floor Heating) Zigbee driver for Hubitat
 
 While the same driver **may** work with other Tuya thermostat models (different than these listed below), this is not guaranteed because of the commands differences between the  models and manufacturers.
 
