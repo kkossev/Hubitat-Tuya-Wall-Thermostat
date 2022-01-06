@@ -12,7 +12,7 @@
  * 
  *  Credits: Jaewon Park, iquix and many others
  * 
- * ver. 1.0.0 2022-01-05 kkossev  - Inital version ( development branch! )
+ * ver. 1.0.0 2022-01-06 kkossev  - Inital version ( development branch! )
  *
 */
 import groovy.json.*
@@ -45,7 +45,8 @@ metadata {
     preferences {
         input (name: "logEnable", type: "bool", title: "<b>Debug logging</b>", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
         input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
-        input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes to schedule mode, then it automatically reverts to manual mode/i>", defaultValue: true)
+        input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes to schedule mode, then it automatically reverts to manual mode</>", defaultValue: false)
+        input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
         
     }
 }
@@ -120,7 +121,13 @@ def parse(String description) {
                     break
                 case 0x18: // 0x18 : Current Temperature
                     def currentTemperatureValue = fncmd// /10  KK was /10     
-                    if (settings?.txtEnable) log.info "${device.displayName} temperature reported is: ${currentTemperatureValue}"
+                    if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {
+                        currentTemperatureValue = fncmd 
+                    }
+                    else {
+                        currentTemperatureValue = fncmd / 10
+                    }
+                    if (settings?.txtEnable) log.info "${device.displayName} temperature is: ${currentTemperatureValue}"
                     sendEvent(name: "temperature", value: currentTemperatureValue, unit: "C", displayed: true)
                     break
                 case 0x02: // added KK
@@ -140,7 +147,7 @@ def parse(String description) {
                     }
                     break
                 case 0x24: // 0x24 : operating state
-                    if (settings?.logEnable) log.debug "${device.displayName} thermostatOperatingState reported is: ${fncmd ? "idle" : "heating"}"
+                    if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState reported is: ${fncmd ? "idle" : "heating"}"
                     sendEvent(name: "thermostatOperatingState", value: (fncmd ? "idle" : "heating"), displayed: true)
                     break
                 case 0x65: // KK
@@ -251,13 +258,7 @@ def refresh() {
 }
 
 def logInitializeRezults() {
-/*    
-    log.info "${device.displayName} switchPollingSupported  = ${state.switchPollingSupported}"
-    log.info "${device.displayName} voltagePollingSupported = ${state.voltagePollingSupported}"
-    log.info "${device.displayName} currentPollingSupported = ${state.currentPollingSupported}"
-    log.info "${device.displayName} powerPollingSupported   = ${state.powerPollingSupported}"
-    log.info "${device.displayName} energyPollingSupported  = ${state.energyPollingSupported}"
-*/
+    log.info "${device.displayName} manufacturer  = ${device.getDataValue("manufacturer")}"
     if (settings?.txtEnable) log.info "${device.displayName} Initialization finished"
 }
 
@@ -274,7 +275,8 @@ void initializeVars() {
     //
     device.updateSetting("logEnable", true)    
     device.updateSetting("txtEnable", true)    
-    device.updateSetting("forceManual", true)    
+    device.updateSetting("forceManual", false)    
+    device.updateSetting("resendFailed", false)    
 
 }
 
@@ -295,6 +297,8 @@ def initialize() {
 }
 
 def modeReceiveCheck() {
+    if (settings?.resendFailed == false )  return
+    
     if (settings?.logEnable) log.debug "${device.displayName} modeReceiveCheck()"
     if (state.mode != "") {
         if (settings?.logEnable) log.debug "${device.displayName} resending mode command :"+state.mode
@@ -304,6 +308,8 @@ def modeReceiveCheck() {
 }
 
 def setpointReceiveCheck() {
+    if (settings?.resendFailed == false )  return
+
     if (settings?.logEnable) log.debug "${device.displayName} setpointReceiveCheck()"
     if (state.setpoint != 0 ) {
         if (settings?.logEnable) log.debug "${device.displayName} resending setpoint command :"+state.setpoint
