@@ -93,16 +93,25 @@ def parse(String description) {
             }
             
         } else if ((descMap?.clusterInt==CLUSTER_TUYA) && (descMap?.command == "01" || descMap?.command == "02")) {
+            //if (descMap?.command == "02") { if (settings?.logEnable) log.warn "command == 02 !"  }            
             def dp = zigbee.convertHexToInt(descMap?.data[2])
-            def fncmd = 0
+            //def fncmd = 0
+            def fncmd = getTuyaAttributeValue(descMap?.data)
+/*            
             try {
-                fncmd = zigbee.convertHexToInt(descMap?.data[6..-1].join(''))
+                //  A negative index counts from the end of the list backward. So if we use -1 as index we get the last entry, if we use -2 as index we get the next-to-last entry.
+                if ( descMap?.data.size() >= 6)) {
+                    fncmd = zigbee.convertHexToInt(descMap?.data[6..-1].join(''))    // KK check / verify data length !!!! There are commands with just 4 data bytes !!
+                }
+                else {
+                }
             } catch (e) {
                 log.error "exception! dp=${dp} data = ${descMap?.data}"
             }
+*/
             //log.trace "fncmd = ${fncmd}"
             if (dp == state.old_dp && fncmd == state.old_fncmd) {
-                if (settings?.logEnable) log.warn "(duplicate) dp=${dp}  fncmd=${fncmd}"
+                if (settings?.logEnable) log.warn "(duplicate) dp=${dp}  fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
                 return
             }
             //log.trace "dp=${dp} fncmd=${fncmd}"
@@ -168,6 +177,8 @@ def parse(String description) {
                 case 0x65: // KK
                     if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"
                     break
+                case 0x2D: // KK Tuya cmd: dp=45 value=0 descMap.data = [00, 08, 2D, 05, 00, 01, 00]
+                case 0x6C: // KK Tuya cmd: dp=108 value=404095046 descMap.data = [00, 08, 6C, 00, 00, 18, 06, 00, 28, 08, 00, 1C, 0B, 1E, 32, 0C, 1E, 32, 11, 00, 18, 16, 00, 46, 08, 00, 50, 17, 00, 3C]
                 default:
                     if (settings?.logEnable) log.warn "${device.displayName} NOT PROCESSED Tuya cmd: dp=${dp} value=${fncmd} descMap.data = ${descMap?.data}" 
                     break
@@ -176,6 +187,20 @@ def parse(String description) {
             if (settings?.logEnable) log.warn "not parsed : "+descMap
         }
     } // if catchAll || readAttr
+}
+
+private int getTuyaAttributeValue(ArrayList _data) {
+    int retValue = 0
+    
+    if (_data.size() >= 6) {
+        int dataLength = _data[5] as Integer
+        int power = 1;
+        for (i in dataLength..1) {
+            retValue = retValue + power * zigbee.convertHexToInt(_data[i+5])
+            power = power * 256
+        }
+    }
+    return retValue
 }
 
 def setThermostatMode(mode){
