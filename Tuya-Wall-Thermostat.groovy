@@ -45,9 +45,9 @@ metadata {
     preferences {
         input (name: "logEnable", type: "bool", title: "<b>Debug logging</b>", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
         input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
-        input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes to schedule mode, then it automatically reverts to manual mode</>", defaultValue: false)
+        input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes intto schedule mode, then it automatically reverts back to manual mode</>", defaultValue: false)
+        input (name: "modelGroup", title: "Model group", description: "<i>Thermostat type</i>", type: "enum", options:["Auto detect", "Model 1", "Model 2", "Model 3"], defaultValue: "Auto detect", required: true)        
         input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
-        
     }
 }
 
@@ -63,7 +63,7 @@ private getDP_TYPE_ENUM() { "04" }
 
 // Parse incoming device messages to generate events
 def parse(String description) {
-    if (settings?.logEnable) log.debug "${device.displayName} parse() description: ${description}\n\r"
+    if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
         Map descMap = zigbee.parseDescriptionAsMap(description)
         if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "24") {        //getSETTIME
@@ -71,27 +71,35 @@ def parse(String description) {
             def offset = 0
             try {
                 offset = location.getTimeZone().getOffset(new Date().getTime())
-                //offset = getLocation().getTimeZone().getOffset(new Date().getTime())    // KK
                 if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset}"
             } catch(e) {
-                log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. setting timezone offset to zero"
+                log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. Setting timezone offset to zero"
             }
             def cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
-           
-            if (settings?.logEnable) log.debug "${device.displayName} sending time data :" + cmds
+ log.trace "${device.displayName} now is: ${now()}"          
+            if (settings?.logEnable) log.debug "${device.displayName} sending time data : ${cmds}"
             cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
             state.old_dp = ""
             state.old_fncmd = ""
-        } else if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "0B") {
-            if (settings?.logEnable) log.debug "${device.displayName} device has received data from clustercmd "+descMap?.data
+            
+        } else if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "0B") {    // ZCL Command Default Response
+            String clusterCmd = descMap?.data[0]
+            def status = descMap?.data[1]            
+            if (settings?.logEnable) log.debug "${device.displayName} device has received Tuya cluster ZCL command 0x${clusterCmd} response 0x${status} data = ${descMap?.data}"
             state.old_dp = ""
             state.old_fncmd = ""
+            if (status != "00") {
+                if (settings?.logEnable) log.warn "${device.displayName} ATTENTION! manufacturer = ${device.getDataValue("manufacturer")} unsupported Tuya cluster ZCL command 0x${clusterCmd} response 0x${status} data = ${descMap?.data} !!!"                
+            }
+            
         } else if ((descMap?.clusterInt==CLUSTER_TUYA) && (descMap?.command == "01" || descMap?.command == "02")) {
             def dp = zigbee.convertHexToInt(descMap?.data[2])
             def fncmd = 0
             try {
                 fncmd = zigbee.convertHexToInt(descMap?.data[6..-1].join(''))
-            } catch (e) {}
+            } catch (e) {
+                log.error "exception! dp=${dp} data = ${descMap?.data}"
+            }
             //log.trace "fncmd = ${fncmd}"
             if (dp == state.old_dp && fncmd == state.old_fncmd) {
                 if (settings?.logEnable) log.warn "(duplicate) dp=${dp}  fncmd=${fncmd}"
@@ -110,26 +118,6 @@ def parse(String description) {
                         state.mode = ""
                     }
                     break
-                case 0x10: // 0x10: Target Temperature
-                    def setpointValue = fncmd
-                    if (settings?.logEnable) log.info "${device.displayName} heatingSetpoint reported is: ${setpointValue}"
-                    sendEvent(name: "heatingSetpoint", value: setpointValue as int, unit: "C", displayed: true)
-                    sendEvent(name: "coolingSetpoint", value: setpointValue as int, unit: "C", displayed: false)
-                    if (setpointValue == state.setpoint)  {
-                        state.setpoint = 0
-                    }
-                    break
-                case 0x18: // 0x18 : Current Temperature
-                    def currentTemperatureValue = fncmd// /10  KK was /10     
-                    if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {
-                        currentTemperatureValue = fncmd 
-                    }
-                    else {
-                        currentTemperatureValue = fncmd / 10
-                    }
-                    if (settings?.txtEnable) log.info "${device.displayName} temperature is: ${currentTemperatureValue}"
-                    sendEvent(name: "temperature", value: currentTemperatureValue, unit: "C", displayed: true)
-                    break
                 case 0x02: // added KK
                 case 0x03: // 0x03 : Scheduled/Manual Mode
                     if (!(fncmd == 0)) {        // KK inverted
@@ -146,21 +134,48 @@ def parse(String description) {
                         log.info "${device.displayName} Thermostat mode reported is: manual"
                     }
                     break
+                case 0x10: // 0x10: Target Temperature
+                    def setpointValue = fncmd
+                    if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {
+                        setpointValue = fncmd
+                    }
+                    else {
+                        setpointValue = fncmd    // or ?
+                    }
+                    if (settings?.logEnable) log.info "${device.displayName} heatingSetpoint reported is: ${setpointValue}"
+                    sendEvent(name: "heatingSetpoint", value: setpointValue as int, unit: "C", displayed: true)
+                   // sendEvent(name: "coolingSetpoint", value: setpointValue as int, unit: "C", displayed: false)
+                    sendEvent(name: "thermostatSetpoint", value: setpointValue as int, unit: "C", displayed: false)        // Google Home compatibility
+                    if (setpointValue == state.setpoint)  {
+                        state.setpoint = 0
+                    }
+                    break
+                case 0x18: // 0x18 : Current Temperature
+                    def currentTemperatureValue = fncmd// /10  KK was /10     
+                    if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {
+                        currentTemperatureValue = fncmd 
+                    }
+                    else {
+                        currentTemperatureValue = fncmd / 10
+                    }
+                    if (settings?.txtEnable) log.info "${device.displayName} temperature is: ${currentTemperatureValue}"
+                    sendEvent(name: "temperature", value: currentTemperatureValue, unit: "C", displayed: true)
+                    break
                 case 0x24: // 0x24 : operating state
                     if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState reported is: ${fncmd ? "idle" : "heating"}"
                     sendEvent(name: "thermostatOperatingState", value: (fncmd ? "idle" : "heating"), displayed: true)
                     break
                 case 0x65: // KK
-                    log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"
+                    if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"
                     break
                 default:
-                    log.warn "NOT PROCESSED Tuya cmd: dp=${dp} value=${fncmd} descMap.data = ${descMap?.data}" 
+                    if (settings?.logEnable) log.warn "${device.displayName} NOT PROCESSED Tuya cmd: dp=${dp} value=${fncmd} descMap.data = ${descMap?.data}" 
                     break
-            }
+            } //  (dp) switch
         } else {
-            log.warn "not parsed : "+descMap
+            if (settings?.logEnable) log.warn "not parsed : "+descMap
         }
-    }
+    } // if catchAll || readAttr
 }
 
 def setThermostatMode(mode){
@@ -231,9 +246,11 @@ def installed() {
     sendEvent(name: "supportedThermostatFanModes", value: ["auto"])    
     sendEvent(name: "thermostatMode", value: "heat", displayed: false)
     sendEvent(name: "thermostatOperatingState", value: "idle", displayed: false)
-    //sendEvent(name: "heatingSetpoint", value: 0, unit: "C", displayed: false)
-    //sendEvent(name: "coolingSetpoint", value: 0, unit: "C", displayed: false)
-    //sendEvent(name: "temperature", value: 0, unit: "C", displayed: false)
+    sendEvent(name: "heatingSetpoint", value: 0, unit: "C", displayed: false)
+    sendEvent(name: "coolingSetpoint", value: 0, unit: "C", displayed: false)
+    sendEvent(name: "temperature", value: 0, unit: "C", displayed: false)     
+    sendEvent(name: "thermostatSetpoint", value:  0, unit: "C", displayed: false)        // Google Home compatibility
+
     state.mode = ""
     state.setpoint = 0
     unschedule()
@@ -242,7 +259,8 @@ def installed() {
 
 def updated() {
     if (settings?.txtEnable) log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue("model")}"
-    if (settings?.txtEnable) log.info "Debug logging is <b>${logEnable}</b> Description text logging is  <b>${txtEnable}</b>"
+    if (settings?.txtEnable) log.info "Force manual is <b>${forceManual}</b>; Resend failed is <b>${resendFailed}</b>"
+    if (settings?.txtEnable) log.info "Debug logging is <b>${logEnable}</b>; Description text logging is <b>${txtEnable}</b>"
     if (logEnable==true) {
         runIn(1800, logsOff)    // turn off debug logging after 30 minutes
     }
@@ -254,7 +272,7 @@ def updated() {
 
 def refresh() {
     if (settings?.logEnable)  {log.debug "${device.displayName} refresh()..."}
-    //poll()
+    zigbee.readAttribute(0 , 0 )
 }
 
 def logInitializeRezults() {
