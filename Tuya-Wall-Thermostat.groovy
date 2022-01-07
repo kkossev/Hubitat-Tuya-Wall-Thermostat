@@ -22,7 +22,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.0" }
-def timeStamp() {"2022/01/07 12:42 AM"}
+def timeStamp() {"2022/01/07 5:58 PM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -39,8 +39,13 @@ metadata {
         command "initialize"
         command "operationMode", [ [name: "Mode", type: "ENUM", constraints: ["manual", "program"], description: "Select thermostat mode"] ]        
         
+        // Model#1 (Avatto?)
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_ye5jkfsb",  deviceJoinName: "Tuya Wall Thermostat" 
+        // Model#2 (Moes?)
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_aoclfnxz",  deviceJoinName: "Moes Wall Thermostat" // BHT-002
+        // Model#3 (unknown)
+        // Model#4 (BRT-100 for tests)
+        fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_b6wax7g0",  deviceJoinName: "BRT-100 TRV" // BRT-100
         
     }
     preferences {
@@ -80,7 +85,7 @@ def parse(String description) {
                 log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. Setting timezone offset to zero"
             }
             def cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
- log.trace "${device.displayName} now is: ${now()}"          
+ log.trace "${device.displayName} now is: ${now()}"  // KK TODO - converto to Date/Time string!        
             if (settings?.logEnable) log.debug "${device.displayName} sending time data : ${cmds}"
             cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
             state.old_dp = ""
@@ -101,18 +106,6 @@ def parse(String description) {
             def dp = zigbee.convertHexToInt(descMap?.data[2])
             //def fncmd = 0
             def fncmd = getTuyaAttributeValue(descMap?.data)
-/*            
-            try {
-                //  A negative index counts from the end of the list backward. So if we use -1 as index we get the last entry, if we use -2 as index we get the next-to-last entry.
-                if ( descMap?.data.size() >= 6)) {
-                    fncmd = zigbee.convertHexToInt(descMap?.data[6..-1].join(''))    // KK check / verify data length !!!! There are commands with just 4 data bytes !!
-                }
-                else {
-                }
-            } catch (e) {
-                log.error "exception! dp=${dp} data = ${descMap?.data}"
-            }
-*/
             //log.trace "fncmd = ${fncmd}"
             if (dp == state.old_dp && fncmd == state.old_fncmd) {
                 if (settings?.logEnable) log.warn "(duplicate) dp=${dp}  fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
@@ -123,86 +116,115 @@ def parse(String description) {
             state.old_fncmd = fncmd
 
             switch (dp) {
-                case 0x01: // 0x01: Heat / Off
+                case 0x01 : // 0x01: Heat / Off
                     def mode = (fncmd == 0) ? "off" : "heat"
-                    if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode reported is: ${mode}"
+                    if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: ${mode}"
                     sendEvent(name: "thermostatMode", value: mode, displayed: true)
                     if (mode == state.mode) {
                         state.mode = ""
                     }
                     break
-                case 0x02: // added KK - Hold ??
-                case 0x03: // 0x03 : Scheduled/Manual Mode
-                    if (!(fncmd == 0)) {        // KK inverted
-                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode reported is: <b>scheduled</b>!"
-                        log.trace "forceManual = ${settings?.forceManual}"
-                        if (settings?.forceManual == true) {
-                            if (settings?.logEnable) log.warn "calling setManualMode()"
-                            setManualMode()
-                        }
-                        else {
-                            log.trace "setManualMode() <b>not called!</b>"
-                        }
-                    } else {
-                        log.info "${device.displayName} Thermostat mode reported is: manual"
-                    }
-                    // TODO - add event !!!
-                    break
-                case 0x10: // 0x10: Target Temperature / heating setpoint
-                    def setpointValue = fncmd
-                    if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {
-                        setpointValue = fncmd
+                case 0x02 : 
+                    if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") {    // BRT-100 Thermostat heatsetpoint
+                        processTuyaHeatSetpoint( fncmd )
+                        break
                     }
                     else {
-                        setpointValue = fncmd    // or ?
+                        // added KK - Hold ??
+                        // continue as 0x03
                     }
-                    if (settings?.logEnable) log.info "${device.displayName} heatingSetpoint reported is: ${setpointValue}"
-                    sendEvent(name: "heatingSetpoint", value: setpointValue as int, unit: "C", displayed: true)
-                   // sendEvent(name: "coolingSetpoint", value: setpointValue as int, unit: "C", displayed: false)
-                    sendEvent(name: "thermostatSetpoint", value: setpointValue as int, unit: "C", displayed: false)        // Google Home compatibility
-                    if (setpointValue == state.setpoint)  {
-                        state.setpoint = 0
-                    }
-                    break
-                case 0x12: // Max Temp Limit
-                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit reported is: ${fncmd}"
-                    break
-                case 0x13: // Max Temp 
-                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp reported is: ${fncmd}"
-                    break
-                case 0x14: // Dead Zone Temp
-                    if (settings?.txtEnable) log.info "${device.displayName} Dead Zone Temp reported is: ${fncmd}"
-                    break
-                case 0x18: // 0x18 : Current (local) temperature
-                    def currentTemperatureValue = fncmd// /10  KK was /10     
-                    if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {
-                        currentTemperatureValue = fncmd 
+                case 0x03 : // 0x03 : Scheduled/Manual Mode
+                    if (descMap?.size() <=7) {
+                        def controlMode
+                        if (!(fncmd == 0)) {        // KK inverted
+                            controlMode = "scheduled"
+                            //log.trace "forceManual = ${settings?.forceManual}"
+                            if (settings?.forceManual == true) {
+                                if (settings?.logEnable) log.warn "calling setManualMode()"
+                                setManualMode()
+                            }
+                            else {
+                                //log.trace "setManualMode() <b>not called!</b>"
+                            }
+                        } else {
+                            controlMode = "manual"
+                        }
+                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: $controlMode (0x${fncmd})"
+                        // TODO - add event !!!
                     }
                     else {
-                        currentTemperatureValue = fncmd / 10
+                        // Thermostat current temperature
+                        processTuyaTemperature( fncmd )
                     }
-                    if (settings?.txtEnable) log.info "${device.displayName} temperature is: ${currentTemperatureValue}"
-                    sendEvent(name: "temperature", value: currentTemperatureValue, unit: "C", displayed: true)
                     break
-                case 0x1B: // Temp Correction (calibration)
-                    if (settings?.txtEnable) log.info "${device.displayName} temperature correction reported is: ${fncmd}"
+                case 0x04 : // BRT-100 Boost
+                    def boostMode = fncmd == 0 ? "manual" : "boost"
+                    if (settings?.txtEnable) log.info "${device.displayName} Boost mode is: $boostMode (0x${fncmd})"
+                    break
+                case 0x07 : // others Childlock status
+                case 0x0D : // BRT-100 Childlock status
+                    if (settings?.txtEnable) log.info "${device.displayName} Child Lock is: ${fncmd}"
+                    break
+                case 0x0E : // BRT-100 Battery
+                case 0x15 :
+                    def battery = fncmd >100 ? 100 : fncmd
+                    if (settings?.txtEnable) log.info "${device.displayName} battery is: ${fncmd} %"
                     break                
-                case 0x24: // 0x24 : current (running) operating state (valve)
-                    if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState reported is: ${fncmd ? "idle" : "heating"}"
+                case 0x10 : // 0x10: Target Temperature / heating setpoint
+                    processTuyaHeatSetpoint( fncmd )
+                    break
+                case 0x12 : // Max Temp Limit
+                    // KK TODO - also Window open status (false:true) for TRVs ?
+                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit is: ${fncmd}"
+                    break
+                case 0x13 : // Max Temp 
+                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp is: ${fncmd}"
+                    break
+                case 0x14 : // Dead Zone Temp
+                    // KK TODO - also Valve state report : on=1 / off=0 ?
+                    if (settings?.txtEnable) log.info "${device.displayName} Dead Zone Temp is: ${fncmd}"
+                    break
+                case 0x18 : // 0x18 : Current (local) temperature
+                    processTuyaTemperature( fncmd )
+                    break
+                case 0x1B : // // temperature calibration (offset in degree) for Moes (calibration)
+                    processTuyaCalibration( fncmd )
+                    break                
+                case 0x24 : // 0x24 : current (running) operating state (valve)
+                    if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState is: ${fncmd ? "idle" : "heating"}"
                     sendEvent(name: "thermostatOperatingState", value: (fncmd ? "idle" : "heating"), displayed: true)
                     break
-                case 0x28: // KK Child Lock
-                    if (settings?.txtEnable) log.info "${device.displayName} Child Lock reported is: ${fncmd}"
+                case 0x1E :
+                case 0x28 : // KK Child Lock
+                    if (settings?.txtEnable) log.info "${device.displayName} Child Lock is: ${fncmd}"
                     break
-                case 0x2B: // KK Sensor?
-                    if (settings?.txtEnable) log.info "${device.displayName} Sensor reported is: ${fncmd}"
+                case 0x2B : // KK Sensor?
+                    if (settings?.txtEnable) log.info "${device.displayName} Sensor is: ${fncmd}"
                     break
-                case 0x65: // KK
-                    if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"
+                case 0x2C : // temperature calibration (offset in degree)
+                    processTuyaCalibration( fncmd * 10)
                     break
-                case 0x2D: // KK Tuya cmd: dp=45 value=0 descMap.data = [00, 08, 2D, 05, 00, 01, 00]
-                case 0x6C: // KK Tuya cmd: dp=108 value=404095046 descMap.data = [00, 08, 6C, 00, 00, 18, 06, 00, 28, 08, 00, 1C, 0B, 1E, 32, 0C, 1E, 32, 11, 00, 18, 16, 00, 46, 08, 00, 50, 17, 00, 3C]
-                default:
+                case 0x65 : // KK
+                    if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"    // Model#1 only !!
+                    // TODO - filter for BRT-100 !!!!!!!!!!!!!!!
+                    break
+                case 0x66 : // min temperature limit
+                    if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
+                    break
+                case 0x67 : // max temperature limit
+                    if (settings?.txtEnable) log.info "${device.displayName} Max temperature limit is: ${fncmd}"
+                    // KK TODO - could be setpoint for some devices ?
+                    break
+                case 0x6E : // Low battery
+                    if (settings?.txtEnable) log.info "${device.displayName} Battery is: ${fncmd}"
+                    break
+                case 0x70 : // Reporting
+                    if (settings?.txtEnable) log.info "${device.displayName} reporting status state : ${descMap?.data}"
+                    break
+                // unprocessed -> default :
+                case 0x2D : // KK Tuya cmd: dp=45 value=0 descMap.data = [00, 08, 2D, 05, 00, 01, 00]
+                case 0x6C : // KK Tuya cmd: dp=108 value=404095046 descMap.data = [00, 08, 6C, 00, 00, 18, 06, 00, 28, 08, 00, 1C, 0B, 1E, 32, 0C, 1E, 32, 11, 00, 18, 16, 00, 46, 08, 00, 50, 17, 00, 3C]
+                default :
                     if (settings?.logEnable) log.warn "${device.displayName} NOT PROCESSED Tuya cmd: dp=${dp} value=${fncmd} descMap.data = ${descMap?.data}" 
                     break
             } //  (dp) switch
@@ -211,6 +233,55 @@ def parse(String description) {
         }
     } // if catchAll || readAttr
 }
+
+
+def processTuyaHeatSetpoint( fncmd )
+{                        
+    def setpointValue = fncmd
+    if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {    // Model#1
+        setpointValue = fncmd
+    }
+    else if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") { // BRT-100
+        setpointValue = fncmd    // or ?
+    }
+    else {    // Model#2
+        setpointValue = fncmd    // or * 100 / 2 ?
+    }
+    if (settings?.logEnable) log.info "${device.displayName} heatingSetpoint is: ${setpointValue}"
+    sendEvent(name: "heatingSetpoint", value: setpointValue as int, unit: "C", displayed: true)
+    // sendEvent(name: "coolingSetpoint", value: setpointValue as int, unit: "C", displayed: false)
+    sendEvent(name: "thermostatSetpoint", value: setpointValue as int, unit: "C", displayed: false)        // Google Home compatibility
+    if (setpointValue == state.setpoint)  {
+        state.setpoint = 0
+    }                        
+}                        
+
+def processTuyaTemperature( fncmd )
+{
+    def currentTemperatureValue
+    if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {    // Model#1
+        currentTemperatureValue = fncmd 
+    }
+    else {                                                              // Model#2 and all others
+        currentTemperatureValue = fncmd / 10
+    }
+    if (settings?.txtEnable) log.info "${device.displayName} temperature is: ${currentTemperatureValue}"
+    sendEvent(name: "temperature", value: currentTemperatureValue, unit: "C", displayed: true)
+}
+
+def processTuyaCalibration( fncmd )
+{
+    def temp = fncmd
+    if ( true /*device.getDataValue("manufacturer") == "_TZE200_aoclfnxz"*/) { // Only Model#2 Moes?
+        if (temp > 2048) {
+            temp = temp - 4096;
+        }
+    }
+    temp = temp * 100;    
+    if (settings?.txtEnable) log.info "${device.displayName} temperature calibration (correction) is: ${temp}"
+}
+
+
 
 private int getTuyaAttributeValue(ArrayList _data) {
     int retValue = 0
@@ -238,7 +309,7 @@ def setThermostatMode(mode){
         case "cool" :
             state.mode = "off"
             break
-        default:
+        default :
             log.warn "Unsupported mode ${mode}"
             return
     }
@@ -393,7 +464,7 @@ def receiveCheck() {
 private sendTuyaCommand(dp, dp_type, fncmd) {
     ArrayList<String> cmds = []
     cmds += zigbee.command(CLUSTER_TUYA, SETDATA, PACKET_ID + dp + dp_type + zigbee.convertToHexString((int)(fncmd.length()/2), 4) + fncmd )
-    log.trace "sendTuyaCommand = ${cmds}"
+    if (settings?.logEnable) log.trace "sendTuyaCommand = ${cmds}"
     return cmds
 }
 
@@ -434,7 +505,7 @@ def operationMode( mode ) {
             cmds += sendTuyaCommand("02", DP_TYPE_ENUM, "01")// + sendTuyaCommand("03", DP_TYPE_ENUM, "01")    // iquix code
             if (settings?.logEnable) log.trace "${device.displayName} sending program mode : ${cmds}"
             break
-        default:
+        default :
             break
     }
     sendZigbeeCommands( cmds )
