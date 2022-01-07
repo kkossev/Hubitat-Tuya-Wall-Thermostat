@@ -58,9 +58,12 @@ private getSETDATA() { 0x00 }
 private getSETTIME() { 0x24 }
 
 // tuya DP type
-private getDP_TYPE_BOOL() { "01" }
-private getDP_TYPE_VALUE() { "02" }
-private getDP_TYPE_ENUM() { "04" }
+private getDP_TYPE_RAW()     { "01" }    // [ bytes ]
+private getDP_TYPE_BOOL()    { "01" }    // [ 0/1 ]
+private getDP_TYPE_VALUE()   { "02" }    // [ 4 byte value ]
+private getDP_TYPE_STRING()  { "03" }    // [ N byte string ]
+private getDP_TYPE_ENUM()    { "04" }    // [ 0-255 ]
+private getDP_TYPE_BITMAP()  { "05" }    // [ 1,2,4 bytes ] as bits
 
 // Parse incoming device messages to generate events
 def parse(String description) {
@@ -128,7 +131,7 @@ def parse(String description) {
                         state.mode = ""
                     }
                     break
-                case 0x02: // added KK
+                case 0x02: // added KK - Hold ??
                 case 0x03: // 0x03 : Scheduled/Manual Mode
                     if (!(fncmd == 0)) {        // KK inverted
                         if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode reported is: <b>scheduled</b>!"
@@ -143,8 +146,9 @@ def parse(String description) {
                     } else {
                         log.info "${device.displayName} Thermostat mode reported is: manual"
                     }
+                    // TODO - add event !!!
                     break
-                case 0x10: // 0x10: Target Temperature
+                case 0x10: // 0x10: Target Temperature / heating setpoint
                     def setpointValue = fncmd
                     if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {
                         setpointValue = fncmd
@@ -160,7 +164,16 @@ def parse(String description) {
                         state.setpoint = 0
                     }
                     break
-                case 0x18: // 0x18 : Current Temperature
+                case 0x12: // Max Temp Limit
+                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit reported is: ${fncmd}"
+                    break
+                case 0x13: // Max Temp 
+                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp reported is: ${fncmd}"
+                    break
+                case 0x14: // Dead Zone Temp
+                    if (settings?.txtEnable) log.info "${device.displayName} Dead Zone Temp reported is: ${fncmd}"
+                    break
+                case 0x18: // 0x18 : Current (local) temperature
                     def currentTemperatureValue = fncmd// /10  KK was /10     
                     if (device.getDataValue("manufacturer") == "_TZE200_ye5jkfsb") {
                         currentTemperatureValue = fncmd 
@@ -171,9 +184,18 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} temperature is: ${currentTemperatureValue}"
                     sendEvent(name: "temperature", value: currentTemperatureValue, unit: "C", displayed: true)
                     break
-                case 0x24: // 0x24 : operating state
+                case 0x1B: // Temp Correction (calibration)
+                    if (settings?.txtEnable) log.info "${device.displayName} temperature correction reported is: ${fncmd}"
+                    break                
+                case 0x24: // 0x24 : current (running) operating state (valve)
                     if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState reported is: ${fncmd ? "idle" : "heating"}"
                     sendEvent(name: "thermostatOperatingState", value: (fncmd ? "idle" : "heating"), displayed: true)
+                    break
+                case 0x28: // KK Child Lock
+                    if (settings?.txtEnable) log.info "${device.displayName} Child Lock reported is: ${fncmd}"
+                    break
+                case 0x2B: // KK Sensor?
+                    if (settings?.txtEnable) log.info "${device.displayName} Sensor reported is: ${fncmd}"
                     break
                 case 0x65: // KK
                     if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"
@@ -221,7 +243,7 @@ def setThermostatMode(mode){
             return
     }
     runIn(4, modeReceiveCheck/*, [overwrite:true]*/)    // KK check!
-    sendTuyaCommand("01", DP_TYPE_BOOL, mode=="heat" ? "01" : "00")
+    sendTuyaCommand("01", DP_TYPE_BOOL, state.mode =="heat" ? "01" : "00")
 }
 
 def setHeatingSetpoint(temperature){
@@ -235,6 +257,7 @@ def setHeatingSetpoint(temperature){
 }
 
 def setCoolingSetpoint(temperature){
+    if (settings?.logEnable) log.debug "${device.displayName} setCoolingSetpoint(${temperature}) called!"
     setHeatingSetpoint(temperature)
 }
 
@@ -272,10 +295,10 @@ def installed() {
     sendEvent(name: "supportedThermostatFanModes", value: ["auto"])    
     sendEvent(name: "thermostatMode", value: "heat", displayed: false)
     sendEvent(name: "thermostatOperatingState", value: "idle", displayed: false)
-    sendEvent(name: "heatingSetpoint", value: 0, unit: "C", displayed: false)
-    sendEvent(name: "coolingSetpoint", value: 0, unit: "C", displayed: false)
-    sendEvent(name: "temperature", value: 0, unit: "C", displayed: false)     
-    sendEvent(name: "thermostatSetpoint", value:  0, unit: "C", displayed: false)        // Google Home compatibility
+    sendEvent(name: "heatingSetpoint", value: 20, unit: "C", displayed: false)
+    sendEvent(name: "coolingSetpoint", value: 20, unit: "C", displayed: false)
+    sendEvent(name: "temperature", value: 20, unit: "C", displayed: false)     
+    sendEvent(name: "thermostatSetpoint", value:  20, unit: "C", displayed: false)        // Google Home compatibility
 
     state.mode = ""
     state.setpoint = 0
