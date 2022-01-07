@@ -22,7 +22,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.0" }
-def timeStamp() {"2022/01/07 5:58 PM"}
+def timeStamp() {"2022/01/08 12:30 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -56,19 +56,26 @@ metadata {
         input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
     }
 }
+                                
+// KK TODO !
+private getCLUSTER_TUYA()       { 0xEF00 }
+private getSETDATA()            { 0x00 }
+private getSETTIME()            { 0x24 }
 
-
-private getCLUSTER_TUYA() { 0xEF00 }
-private getSETDATA() { 0x00 }
-private getSETTIME() { 0x24 }
+// Tuya Commands
+private getTUYA_REQUEST()       { 0x00 }
+private getTUYA_REPORTING()     { 0x01 }
+private getTUYA_QUERY()         { 0x02 }
+private getTUYA_STATUS_SEARCH() { 0x06 }
+private getTUYA_TIME_SYNCHRONISATION() { 0x24 }
 
 // tuya DP type
-private getDP_TYPE_RAW()     { "01" }    // [ bytes ]
-private getDP_TYPE_BOOL()    { "01" }    // [ 0/1 ]
-private getDP_TYPE_VALUE()   { "02" }    // [ 4 byte value ]
-private getDP_TYPE_STRING()  { "03" }    // [ N byte string ]
-private getDP_TYPE_ENUM()    { "04" }    // [ 0-255 ]
-private getDP_TYPE_BITMAP()  { "05" }    // [ 1,2,4 bytes ] as bits
+private getDP_TYPE_RAW()        { "01" }    // [ bytes ]
+private getDP_TYPE_BOOL()       { "01" }    // [ 0/1 ]
+private getDP_TYPE_VALUE()      { "02" }    // [ 4 byte value ]
+private getDP_TYPE_STRING()     { "03" }    // [ N byte string ]
+private getDP_TYPE_ENUM()       { "04" }    // [ 0-255 ]
+private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
 
 // Parse incoming device messages to generate events
 def parse(String description) {
@@ -116,24 +123,30 @@ def parse(String description) {
             state.old_fncmd = fncmd
 
             switch (dp) {
-                case 0x01 : // 0x01: Heat / Off
-                    def mode = (fncmd == 0) ? "off" : "heat"
-                    if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: ${mode}"
-                    sendEvent(name: "thermostatMode", value: mode, displayed: true)
-                    if (mode == state.mode) {
-                        state.mode = ""
+                case 0x01 : // 0x01: Heat / Off        DP_IDENTIFIER_THERMOSTAT_MODE_4 0x01 // mode for Moes device used with DP_TYPE_ENUM
+                    if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") {
+                        processBRT100Presets( fncmd )
+                    }
+                    else {
+                        def mode = (fncmd == 0) ? "off" : "heat"
+                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: ${mode}"
+                        sendEvent(name: "thermostatMode", value: mode, displayed: true)
+                        if (mode == state.mode) {
+                            state.mode = ""
+                        }
                     }
                     break
-                case 0x02 : 
+                case 0x02 : // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT 0x02 // Heatsetpoint
                     if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") {    // BRT-100 Thermostat heatsetpoint
                         processTuyaHeatSetpoint( fncmd )
                         break
                     }
                     else {
-                        // added KK - Hold ??
-                        // continue as 0x03
+                        // DP_IDENTIFIER_THERMOSTAT_MODE_2 0x02 // mode for Moe device used with DP_TYPE_ENUM
+                        // continue below..
                     }
                 case 0x03 : // 0x03 : Scheduled/Manual Mode
+                    // TODO - use processTuyaModes( dp, fncmd )
                     if (descMap?.size() <=7) {
                         def controlMode
                         if (!(fncmd == 0)) {        // KK inverted
@@ -157,56 +170,62 @@ def parse(String description) {
                         processTuyaTemperature( fncmd )
                     }
                     break
-                case 0x04 : // BRT-100 Boost
-                    def boostMode = fncmd == 0 ? "manual" : "boost"
+                case 0x04 : // BRT-100 Boost    DP_IDENTIFIER_THERMOSTAT_BOOST    DP_IDENTIFIER_THERMOSTAT_BOOST 0x04 // Boost for Moes
+                    def boostMode = fncmd == 0 ? "off" : "on"    // "manual" : "boost"
                     if (settings?.txtEnable) log.info "${device.displayName} Boost mode is: $boostMode (0x${fncmd})"
                     break
-                case 0x07 : // others Childlock status
-                case 0x0D : // BRT-100 Childlock status
+                // case 0x05 : // BRT-100 ?
+                // case 0x09 : // BRT-100 ?
+                case 0x07 : // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07
+                // case 0x08 : DP_IDENTIFIER_WINDOW_OPEN2 0x08
+                case 0x0D : // BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock is: ${fncmd}"
                     break
-                case 0x0E : // BRT-100 Battery
-                case 0x15 :
-                    def battery = fncmd >100 ? 100 : fncmd
-                    if (settings?.txtEnable) log.info "${device.displayName} battery is: ${fncmd} %"
-                    break                
                 case 0x10 : // 0x10: Target Temperature / heating setpoint
+                    // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_3 0x10 // Heatsetpoint for TRV_MOE mode heat
                     processTuyaHeatSetpoint( fncmd )
                     break
                 case 0x12 : // Max Temp Limit
-                    // KK TODO - also Window open status (false:true) for TRVs ?
+                    // KK TODO - also Window open status (false:true) for TRVs ?    DP_IDENTIFIER_WINDOW_OPEN
                     if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit is: ${fncmd}"
                     break
                 case 0x13 : // Max Temp 
                     if (settings?.txtEnable) log.info "${device.displayName} Max Temp is: ${fncmd}"
                     break
                 case 0x14 : // Dead Zone Temp
-                    // KK TODO - also Valve state report : on=1 / off=0 ?
+                    // KK TODO - also Valve state report : on=1 / off=0 ?  DP_IDENTIFIER_THERMOSTAT_VALVE 0x14 // Valve
                     if (settings?.txtEnable) log.info "${device.displayName} Dead Zone Temp is: ${fncmd}"
                     break
+                case 0x0E : // BRT-100 Battery
+                case 0x15 :
+                    def battery = fncmd >100 ? 100 : fncmd
+                    if (settings?.txtEnable) log.info "${device.displayName} battery is: ${fncmd} %"
+                    break                
                 case 0x18 : // 0x18 : Current (local) temperature
                     processTuyaTemperature( fncmd )
                     break
-                case 0x1B : // // temperature calibration (offset in degree) for Moes (calibration)
+                case 0x1B : // // temperature calibration (offset in degree) for Moes (calibration)  // DP_IDENTIFIER_THERMOSTAT_CALIBRATION_1 0x1B // Calibration offset used by Moes and Saswell
                     processTuyaCalibration( fncmd )
                     break                
                 case 0x24 : // 0x24 : current (running) operating state (valve)
                     if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState is: ${fncmd ? "idle" : "heating"}"
                     sendEvent(name: "thermostatOperatingState", value: (fncmd ? "idle" : "heating"), displayed: true)
                     break
-                case 0x1E :
-                case 0x28 : // KK Child Lock
+                case 0x1E : // DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_3 0x1E // For Moes device
+                case 0x28 : // KK Child Lock    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_2 0x28
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock is: ${fncmd}"
                     break
                 case 0x2B : // KK Sensor?
                     if (settings?.txtEnable) log.info "${device.displayName} Sensor is: ${fncmd}"
                     break
-                case 0x2C : // temperature calibration (offset in degree)
+                case 0x2C : // temperature calibration (offset in degree)   //DP_IDENTIFIER_THERMOSTAT_CALIBRATION_2 0x2C // Calibration offset used by others
                     processTuyaCalibration( fncmd * 10)
                     break
-                case 0x65 : // KK
+                // case 0x62 : // DP_IDENTIFIER_REPORTING_TIME 0x62 (Sensors)
+                case 0x65 : // Model#1 PID 
+                    // KK also DP_IDENTIFIER_THERMOSTAT_SCHEDULE_1 0x65 // Moe thermostat W124 (4) + W002 (4) + W001 (4)
                     if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"    // Model#1 only !!
-                    // TODO - filter for BRT-100 !!!!!!!!!!!!!!!
+                    // TODO - filter for BRT-100 !!!!!!!!!!!!!!! DP_IDENTIFIER_THERMOSTAT_MODE_3 0x65 // mode for Saswell device used with DP_TYPE_BOOL
                     break
                 case 0x66 : // min temperature limit
                     if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
@@ -214,13 +233,35 @@ def parse(String description) {
                 case 0x67 : // max temperature limit
                     if (settings?.txtEnable) log.info "${device.displayName} Max temperature limit is: ${fncmd}"
                     // KK TODO - could be setpoint for some devices ?
+                    // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_2 0x67 // Heatsetpoint for Moe
                     break
-                case 0x6E : // Low battery
-                    if (settings?.txtEnable) log.info "${device.displayName} Battery is: ${fncmd}"
+                case 0x68 : // DP_IDENTIFIER_THERMOSTAT_VALVE_2 0x68 // Valve
+                    if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd} %"
+                    // TODO - send event! (works OK with BRT-100 )
                     break
-                case 0x70 : // Reporting
+                case 0x69 : // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_4 0x69 // Heatsetpoint for TRV_MOE mode auto ?
+                    // TODO if (productId == "Tuya_THD MOES TRV")..
+                    if (settings?.txtEnable) log.info "${device.displayName} (DP=0x69) value is: ${fncmd}"
+                    break
+                // case 0x6A : // DP_IDENTIFIER_THERMOSTAT_MODE_1 0x6A // mode used with DP_TYPE_ENUM
+                case 0x6B : // DP_IDENTIFIER_TEMPERATURE 0x6B (Sensors)
+                    if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6B) temperature value is: ${fncmd}"
+                    break
+                case 0x6C : // DP_IDENTIFIER_HUMIDITY 0x6C  (Sensors)
+                    if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6C) humidity value is: ${fncmd}"
+                    break
+                case 0x6D : // Valve position in % (also // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_4 0x6D // Not finished)
+                    if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) valve position is: ${fncmd}"
+                    // TODO if (valve > 3) => On !
+                    break
+                case 0x6E : // Low battery    DP_IDENTIFIER_BATTERY 0x6E
+                    if (settings?.txtEnable) log.info "${device.displayName} Battery (DP= 0x6E) is: ${fncmd}"
+                    break
+                case 0x70 : // Reporting    DP_IDENTIFIER_REPORTING 0x70
+                    // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_2 0x70 // work days (6)
                     if (settings?.txtEnable) log.info "${device.displayName} reporting status state : ${descMap?.data}"
                     break
+                //case 0x71 :// DP_IDENTIFIER_THERMOSTAT_SCHEDULE_3 0x71 // holiday = Not working day (6)
                 // unprocessed -> default :
                 case 0x2D : // KK Tuya cmd: dp=45 value=0 descMap.data = [00, 08, 2D, 05, 00, 01, 00]
                 case 0x6C : // KK Tuya cmd: dp=108 value=404095046 descMap.data = [00, 08, 6C, 00, 00, 18, 06, 00, 28, 08, 00, 1C, 0B, 1E, 32, 0C, 1E, 32, 11, 00, 18, 16, 00, 46, 08, 00, 50, 17, 00, 3C]
@@ -279,6 +320,67 @@ def processTuyaCalibration( fncmd )
     }
     temp = temp * 100;    
     if (settings?.txtEnable) log.info "${device.displayName} temperature calibration (correction) is: ${temp}"
+}
+
+def processBRT100Presets( data ) {
+    def mode
+    def preset
+    if (data == 0) { //programming
+        mode = "auto"
+        preset = "auto"
+    }
+    else if (data == 1) { //manual
+        mode = "heat"
+        preset = "manual"
+    }
+    else if (data == 2) { //temporary_manual
+        mode = "heat"
+        preset = "manual"
+    }
+    //temporary_manual
+    else if (data == 3) { //holiday
+        mode = "auto"
+        preset = "holiday"
+    }
+    else {
+        if (settings?.logEnable) log.warn "${device.displayName} processBRT100Presets unknown: ${data}"
+        return;
+    }
+    // TODO - change thremostatMode depending on mode ?
+    // TODO - change tehrmostatPreset depending on preset ?
+    if (settings?.txtEnable) log.info "${device.displayName} BRT-100 Presets: mode = ${mode} preset = ${preset}"
+}
+
+def processTuyaModes( dp, data ) {
+    // dp = 0x0402 : // preset for moes or mode
+    // dp = 0x0403 : // preset for moes    
+    if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") {    // BRT-100 ?    
+        def mode
+        if (data == 0) { mode = "auto" } //schedule
+        else if (data == 1) { mode = "heat" } //manual
+        else if (data == 2) { mode = "off" } //away
+        else {
+            if (settings?.logEnable) log.warn "${device.displayName} processTuyaModes: unknown mode: ${data}"
+            return
+        }
+        if (settings?.txtEnable) log.info "${device.displayName} mode is: ${mode}"
+        // TODO - - change thremostatMode depending on mode ?
+    }
+    else {
+        def preset
+        if (dp == 0x02) { // 0x0402
+            preset = "auto" 
+        }
+        else if (dp == 0x03) { // 0x0403
+            preset = "program"
+        }
+        else {
+            if (settings?.logEnable) log.warn "${device.displayName} processTuyaModes: unknown preset: dp=${dp} data=${data}"
+            return
+        }
+        if (settings?.txtEnable) log.info "${device.displayName} preset is: ${preset}"
+        // TODO - - change preset ?
+    }
 }
 
 
