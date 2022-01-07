@@ -22,7 +22,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.0" }
-def timeStamp() {"2022/01/08 12:30 AM"}
+def timeStamp() {"2022/01/08 1:49 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -87,12 +87,12 @@ def parse(String description) {
             def offset = 0
             try {
                 offset = location.getTimeZone().getOffset(new Date().getTime())
-                if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset}"
+                //if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset}"
             } catch(e) {
                 log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. Setting timezone offset to zero"
             }
             def cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
- log.trace "${device.displayName} now is: ${now()}"  // KK TODO - converto to Date/Time string!        
+            // log.trace "${device.displayName} now is: ${now()}"  // KK TODO - converto to Date/Time string!        
             if (settings?.logEnable) log.debug "${device.displayName} sending time data : ${cmds}"
             cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
             state.old_dp = ""
@@ -109,19 +109,19 @@ def parse(String description) {
             }
             
         } else if ((descMap?.clusterInt==CLUSTER_TUYA) && (descMap?.command == "01" || descMap?.command == "02")) {
-            //if (descMap?.command == "02") { if (settings?.logEnable) log.warn "command == 02 !"  }            
-            def dp = zigbee.convertHexToInt(descMap?.data[2])
-            //def fncmd = 0
-            def fncmd = getTuyaAttributeValue(descMap?.data)
-            //log.trace "fncmd = ${fncmd}"
+            //if (descMap?.command == "02") { if (settings?.logEnable) log.warn "command == 02 !"  }   
+            def transid = zigbee.convertHexToInt(descMap?.data[1])           // "transid" is just a "counter", a response will have the same transid as the command
+            def dp = zigbee.convertHexToInt(descMap?.data[2])                // "dp" field describes the action/message of a command frame
+            def dp_id = zigbee.convertHexToInt(descMap?.data[3])             // "dp_identifier" is device dependant
+            def fncmd = getTuyaAttributeValue(descMap?.data)                 // 
             if (dp == state.old_dp && fncmd == state.old_fncmd) {
-                if (settings?.logEnable) log.warn "(duplicate) dp=${dp}  fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
+                if (settings?.logEnable) log.warn "(duplicate) transid=${transid} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
                 return
             }
             //log.trace "dp=${dp} fncmd=${fncmd}"
             state.old_dp = dp
             state.old_fncmd = fncmd
-
+            // the cases default to dp_id = "01"
             switch (dp) {
                 case 0x01 : // 0x01: Heat / Off        DP_IDENTIFIER_THERMOSTAT_MODE_4 0x01 // mode for Moes device used with DP_TYPE_ENUM
                     if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") {
@@ -146,8 +146,8 @@ def parse(String description) {
                         // continue below..
                     }
                 case 0x03 : // 0x03 : Scheduled/Manual Mode
-                    // TODO - use processTuyaModes( dp, fncmd )
-                    if (descMap?.size() <=7) {
+                    // TODO - use processTuyaModes3( dp, fncmd )
+                    if (descMap?.data.size() <= 7) {
                         def controlMode
                         if (!(fncmd == 0)) {        // KK inverted
                             controlMode = "scheduled"
@@ -167,19 +167,21 @@ def parse(String description) {
                     }
                     else {
                         // Thermostat current temperature
+                        log.trace "processTuyaTemperature descMap?.size() = ${descMap?.data.size()} dp_id=${dp_id} <b>dp=${dp}</b> :"
                         processTuyaTemperature( fncmd )
                     }
                     break
                 case 0x04 : // BRT-100 Boost    DP_IDENTIFIER_THERMOSTAT_BOOST    DP_IDENTIFIER_THERMOSTAT_BOOST 0x04 // Boost for Moes
                     def boostMode = fncmd == 0 ? "off" : "on"    // "manual" : "boost"
                     if (settings?.txtEnable) log.info "${device.displayName} Boost mode is: $boostMode (0x${fncmd})"
+                    // TODO - verify and use processTuyaModes4( dp, fncmd )
                     break
                 // case 0x05 : // BRT-100 ?
                 // case 0x09 : // BRT-100 ?
                 case 0x07 : // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07
                 // case 0x08 : DP_IDENTIFIER_WINDOW_OPEN2 0x08
                 case 0x0D : // BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D
-                    if (settings?.txtEnable) log.info "${device.displayName} Child Lock is: ${fncmd}"
+                    if (settings?.txtEnable) log.info "${device.displayName} Child Lock (dp=${dp}) is: ${fncmd}"
                     break
                 case 0x10 : // 0x10: Target Temperature / heating setpoint
                     // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_3 0x10 // Heatsetpoint for TRV_MOE mode heat
@@ -202,6 +204,7 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} battery is: ${fncmd} %"
                     break                
                 case 0x18 : // 0x18 : Current (local) temperature
+                    log.trace "processTuyaTemperature dp_id=${dp_id} <b>dp=${dp}</b> :"
                     processTuyaTemperature( fncmd )
                     break
                 case 0x1B : // // temperature calibration (offset in degree) for Moes (calibration)  // DP_IDENTIFIER_THERMOSTAT_CALIBRATION_1 0x1B // Calibration offset used by Moes and Saswell
@@ -275,6 +278,21 @@ def parse(String description) {
     } // if catchAll || readAttr
 }
 
+boolean useTuyaCluster( manufacturer )
+{
+    // https://docs.tuya.com/en/iot/device-development/module/zigbee-module/zigbeetyzs11module?id=K989rik5nkhez
+    //_TZ3000 don't use tuya cluster
+    //_TYZB01 don't use tuya cluster
+    //_TYZB02 don't use tuya cluster
+    //_TZ3400 don't use tuya cluster
+
+    if (manufacturer.startsWith("_TZE200_") || // Tuya cluster visible
+        manufacturer.startsWith("_TYST11_"))   // Tuya cluster invisible
+    {
+        return true;
+    }
+    return false;
+}
 
 def processTuyaHeatSetpoint( fncmd )
 {                        
@@ -351,7 +369,7 @@ def processBRT100Presets( data ) {
     if (settings?.txtEnable) log.info "${device.displayName} BRT-100 Presets: mode = ${mode} preset = ${preset}"
 }
 
-def processTuyaModes( dp, data ) {
+def processTuyaModes3( dp, data ) {
     // dp = 0x0402 : // preset for moes or mode
     // dp = 0x0403 : // preset for moes    
     if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") {    // BRT-100 ?    
@@ -360,7 +378,7 @@ def processTuyaModes( dp, data ) {
         else if (data == 1) { mode = "heat" } //manual
         else if (data == 2) { mode = "off" } //away
         else {
-            if (settings?.logEnable) log.warn "${device.displayName} processTuyaModes: unknown mode: ${data}"
+            if (settings?.logEnable) log.warn "${device.displayName} processTuyaModes3: unknown mode: ${data}"
             return
         }
         if (settings?.txtEnable) log.info "${device.displayName} mode is: ${mode}"
@@ -375,11 +393,36 @@ def processTuyaModes( dp, data ) {
             preset = "program"
         }
         else {
-            if (settings?.logEnable) log.warn "${device.displayName} processTuyaModes: unknown preset: dp=${dp} data=${data}"
+            if (settings?.logEnable) log.warn "${device.displayName} processTuyaMode3: unknown preset: dp=${dp} data=${data}"
             return
         }
         if (settings?.txtEnable) log.info "${device.displayName} preset is: ${preset}"
         // TODO - - change preset ?
+    }
+}
+
+def processTuyaModes4( dp, data ) {
+    // TODO - check for model !
+    // dp = 0x0403 : // preset for moes    
+    if (true) {   
+        def mode
+        if (data == 0) { mode = "holiday" } 
+        else if (data == 1) { mode = "auto" }
+        else if (data == 2) { mode = "manual" }
+        else if (data == 3) { mode = "manual" }
+        else if (data == 4) { mode = "eco" }
+        else if (data == 5) { mode = "boost" }
+        else if (data == 6) { mode = "complex" }
+        else {
+            if (settings?.logEnable) log.warn "${device.displayName} processTuyaModes4: unknown mode: ${data}"
+            return
+        }
+        if (settings?.txtEnable) log.info "${device.displayName} mode is: ${mode}"
+        // TODO - - change thremostatMode depending on mode ?
+    }
+    else {
+        if (settings?.logEnable) log.warn "${device.displayName} processTuyaModes4: model manufacturer ${device.getDataValue('manufacturer')}"
+            return
     }
 }
 
@@ -480,7 +523,7 @@ def installed() {
 }
 
 def updated() {
-    if (settings?.txtEnable) log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue("model")}"
+    if (settings?.txtEnable) log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue('model')} manufacturer <b>${device.getDataValue('manufacturer')}</b>"
     if (settings?.txtEnable) log.info "Force manual is <b>${forceManual}</b>; Resend failed is <b>${resendFailed}</b>"
     if (settings?.txtEnable) log.info "Debug logging is <b>${logEnable}</b>; Description text logging is <b>${txtEnable}</b>"
     if (logEnable==true) {
