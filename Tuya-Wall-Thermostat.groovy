@@ -22,7 +22,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.0" }
-def timeStamp() {"2022/01/08 1:49 AM"}
+def timeStamp() {"2022/01/08 2:48 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -118,10 +118,10 @@ def parse(String description) {
                 if (settings?.logEnable) log.warn "(duplicate) transid=${transid} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
                 return
             }
-            //log.trace "dp=${dp} fncmd=${fncmd}"
+            //log.trace " dp_id=${dp_id} dp=${dp} fncmd=${fncmd}"
             state.old_dp = dp
             state.old_fncmd = fncmd
-            // the cases default to dp_id = "01"
+            // the switch cases below default to dp_id = "01"
             switch (dp) {
                 case 0x01 : // 0x01: Heat / Off        DP_IDENTIFIER_THERMOSTAT_MODE_4 0x01 // mode for Moes device used with DP_TYPE_ENUM
                     if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") {
@@ -176,9 +176,11 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} Boost mode is: $boostMode (0x${fncmd})"
                     // TODO - verify and use processTuyaModes4( dp, fncmd )
                     break
-                // case 0x05 : // BRT-100 ?
+                case 0x05 : // BRT-100 ?
+                    if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
+                    break
                 // case 0x09 : // BRT-100 ?
-                case 0x07 : // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07
+                case 0x07 : // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving 
                 // case 0x08 : DP_IDENTIFIER_WINDOW_OPEN2 0x08
                 case 0x0D : // BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock (dp=${dp}) is: ${fncmd}"
@@ -194,9 +196,9 @@ def parse(String description) {
                 case 0x13 : // Max Temp 
                     if (settings?.txtEnable) log.info "${device.displayName} Max Temp is: ${fncmd}"
                     break
-                case 0x14 : // Dead Zone Temp
+                case 0x14 : // Dead Zone Temp (hysteresis)
                     // KK TODO - also Valve state report : on=1 / off=0 ?  DP_IDENTIFIER_THERMOSTAT_VALVE 0x14 // Valve
-                    if (settings?.txtEnable) log.info "${device.displayName} Dead Zone Temp is: ${fncmd}"
+                    if (settings?.txtEnable) log.info "${device.displayName} Dead Zone Temp (hysteresis) is: ${fncmd}"
                     break
                 case 0x0E : // BRT-100 Battery
                 case 0x15 :
