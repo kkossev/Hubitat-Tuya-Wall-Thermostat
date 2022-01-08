@@ -22,7 +22,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.0" }
-def timeStamp() {"2022/01/08 11:36 PM"}
+def timeStamp() {"2022/01/09 1:00 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -65,6 +65,7 @@ metadata {
     '_TZE200_other'     : 'MODEL3',      // Tuya other models (reserved)
     '_TZE200_b6wax7g0'  : 'TEST',        // BRT-100; ZONNSMART
     '_TZE200_ckud7u2l'  : 'TEST2',       // KKmoon Tuya; temp /10.0
+    '_TZE200_zion52ef'  : 'TEST3',       // TRV MOES => fn = "0001 > off:  dp = "0204"  data = "02" // off; heat:  dp = "0204"  data = "01" // on; auto: n/a !; setHeatingSetpoint(preciseDegrees):   fn = "00" SP = preciseDegrees *10; dp = "1002"
     ''                  : 'UNKNOWN'      // 
 ]
                                 
@@ -138,8 +139,7 @@ def parse(String description) {
             // the switch cases below default to dp_id = "01"
             switch (dp) {
                 case 0x01 :                                                 // 0x01: Heat / Off        DP_IDENTIFIER_THERMOSTAT_MODE_4 0x01 // mode for Moes device used with DP_TYPE_ENUM
-                    if (getModelGroup() == 'TEST') {
-                    //if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") {
+                    if (getModelGroup() in ['TEST', 'TEST2']) {
                         processBRT100Presets( fncmd )
                     }
                     else {
@@ -243,9 +243,12 @@ def parse(String description) {
                     break
                 // case 0x62 : // DP_IDENTIFIER_REPORTING_TIME 0x62 (Sensors)
                 case 0x65 :                                                 // AVATTO PID 
-                    // KK also DP_IDENTIFIER_THERMOSTAT_SCHEDULE_1 0x65 // Moe thermostat W124 (4) + W002 (4) + W001 (4)
-                    if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"    // Model#1 only !!
-                    // TODO - filter for BRT-100 !!!!!!!!!!!!!!! DP_IDENTIFIER_THERMOSTAT_MODE_3 0x65 // mode for Saswell device used with DP_TYPE_BOOL
+                    if (getModelGroup() in ['AVATTO']) {
+                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"    // Model#1 only !!
+                    }
+                    else {
+                        if (settings?.logEnable) log.info "${device.displayName} Thermostat SCHEDULE_1 data received (not processed)..."
+                    }
                     break
                 case 0x66 :                                                 // min temperature limit
                     if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
@@ -329,8 +332,10 @@ def processTuyaHeatSetpointReport( fncmd )
             setpointValue = fncmd
             break
         case 'TEST2' :
+        case 'TEST3' :
             setpointValue = fncmd / 10.0
             break
+        case 'UNKNOWN' :
         default :
             setpointValue = fncmd
             break
@@ -353,15 +358,18 @@ def processTuyaTemperatureReport( fncmd )
             currentTemperatureValue = fncmd
             break
         case 'MOES' :
-        case 'TEST2' :
             currentTemperatureValue = fncmd / 10.0
             break
         case 'MODEL3' :
             currentTemperatureValue = fncmd    // or * 100 / 2 ?
             break
-        case 'TEST' :
-            currentTemperatureValue = fncmd
+        case 'TEST' :                          // BRT-100
+            currentTemperatureValue = fncmd / 10.0
             break
+        case 'TEST2' :
+        case 'TEST3' :
+            break
+        case 'UNKNOWN' :
         default :
             currentTemperatureValue = fncmd
             break
@@ -373,7 +381,7 @@ def processTuyaTemperatureReport( fncmd )
 def processTuyaCalibration( fncmd )
 {
     def temp = fncmd
-    if ( true /*device.getDataValue("manufacturer") == "_TZE200_aoclfnxz"*/) { // Only Model#2 Moes?
+    if ( true /*device.getDataValue("manufacturer") == "_TZE200_aoclfnxz"*/) { // Only Model#2 Moes? KK: TODO !
         if (temp > 2048) {
             temp = temp - 4096;
         }
@@ -414,7 +422,7 @@ def processBRT100Presets( data ) {
 def processTuyaModes3( dp, data ) {
     // dp = 0x0402 : // preset for moes or mode
     // dp = 0x0403 : // preset for moes    
-    if (device.getDataValue("manufacturer") == "_TZE200_b6wax7g0") {    // BRT-100 ?    
+    if (getModelGroup() in ['TEST', 'TEST2']) {    // BRT-100 ?    KK: TODO!
         def mode
         if (data == 0) { mode = "auto" } //schedule
         else if (data == 1) { mode = "heat" } //manual
@@ -504,14 +512,48 @@ def setThermostatMode(mode){
     sendTuyaCommand("01", DP_TYPE_BOOL, state.mode =="heat" ? "01" : "00")
 }
 
-def setHeatingSetpoint(temperature){
+def setHeatingSetpoint( temperature ) {
     if (settings?.logEnable) log.debug "${device.displayName} setHeatingSetpoint(${temperature})"
-    def settemp = temperature as int 
-    settemp += (settemp != temperature && temperature > device.currentValue("heatingSetpoint")) ? 1 : 0
-    if (settings?.logEnable) log.debug "${device.displayName} change setpoint to ${settemp}"
+    def settemp = temperature as double           // KK check! 
+    def dp = "10"
+    def model = getModelGroup()
+    switch (model) {
+        case 'AVATTO' :                          // AVATTO - only integer setPoints!
+            dp = "10"
+            settemp = temperature
+            break
+        case 'MOES' :                            // MOES - 0.5 precision? ( and double the setpoint value ? )
+            dp = "10"
+            settemp = temperature * 2            // KK check!
+            break
+        case 'MODEL3' :
+            dp = "10"
+            settemp = temperature
+            break
+        case 'TEST' :                            // BRT-100
+            dp = "02"                            
+            settemp = temperature
+        case 'TEST2' :
+        case 'TEST3' :
+            //dp = "02"
+            settemp = temperature
+            break
+        default :
+            settemp = temperature
+            break
+    }    
+    // iquix code 
+    settemp += (settemp != temperature && temperature > device.currentValue("heatingSetpoint")) ? 1 : 0        // KK check !
+    
+    
+    
+    
+    
+
+    if (settings?.logEnable) log.debug "${device.displayName} changing setpoint to ${settemp}"
     state.setpoint = settemp
-    runIn(4, setpointReceiveCheck/*, [overwrite:true]*/)      // KK check!
-    sendTuyaCommand("10", DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8))
+    runIn(4, setpointReceiveCheck)
+    sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8))
 }
 
 def setCoolingSetpoint(temperature){
