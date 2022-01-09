@@ -14,7 +14,7 @@
  * 
  * ver. 1.0.0 2022-01-09 kkossev  - Inital version
  * ver. 1.0.1 2022-01-09 kkossev  - modelGroupPreference working OK
- * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint bug fix
+ * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
  *
 */
 import groovy.json.*
@@ -24,7 +24,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.2" }
-def timeStamp() {"2022/01/09 10:41 PM"}
+def timeStamp() {"2022/01/09 11:19 PM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -547,7 +547,7 @@ def setThermostatMode( mode ) {
 
 def setHeatingSetpoint( temperature ) {
     if (settings?.logEnable) log.debug "${device.displayName} setHeatingSetpoint(${temperature})"
-    def settemp = temperature as double           // KK check! 
+    def settemp = temperature as int           // KK check! 
     def dp = "10"
     def model = getModelGroup()
     switch (model) {
@@ -718,22 +718,32 @@ def initialize() {
 def modeReceiveCheck() {
     if (settings?.resendFailed == false )  return
     
-    if (settings?.logEnable) log.debug "${device.displayName} modeReceiveCheck()"
     if (state.mode != "") {
+        if (settings?.logEnable) log.warn "${device.displayName} modeReceiveCheck() <b>failed</b>"
+        /*
         if (settings?.logEnable) log.debug "${device.displayName} resending mode command :"+state.mode
         def cmds = setThermostatMode(state.mode)
         cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
+        */
+    }
+    else {
+        if (settings?.logEnable) log.debug "${device.displayName} modeReceiveCheck() OK"
     }
 }
 
 def setpointReceiveCheck() {
     if (settings?.resendFailed == false )  return
 
-    if (settings?.logEnable) log.debug "${device.displayName} setpointReceiveCheck()"
     if (state.setpoint != 0 ) {
+        if (settings?.logEnable) log.warn "${device.displayName} setpointReceiveCheck() <b>failed<b/>"
+        /*
         if (settings?.logEnable) log.debug "${device.displayName} resending setpoint command :"+state.setpoint
         def cmds = setHeatingSetpoint(state.setpoint)
         cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
+        */
+    }
+    else {
+        if (settings?.logEnable) log.debug "${device.displayName} setpointReceiveCheck() OK"
     }
 }
 
