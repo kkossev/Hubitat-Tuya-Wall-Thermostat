@@ -22,8 +22,8 @@ import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubAction
 import hubitat.device.Protocol
 
-def version() { "1.0.0" }
-def timeStamp() {"2022/01/09 9:57 AM"}
+def version() { "1.0.1" }
+def timeStamp() {"2022/01/09 10:17 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -68,6 +68,9 @@ metadata {
     '_TZE200_b6wax7g0'  : 'TEST',        // BRT-100; ZONNSMART
     '_TZE200_ckud7u2l'  : 'TEST2',       // KKmoon Tuya; temp /10.0
     '_TZE200_zion52ef'  : 'TEST3',       // TRV MOES => fn = "0001 > off:  dp = "0204"  data = "02" // off; heat:  dp = "0204"  data = "01" // on; auto: n/a !; setHeatingSetpoint(preciseDegrees):   fn = "00" SP = preciseDegrees *10; dp = "1002"
+    '_TZE200_c88teujp'  : 'TEST3',       // TRV "SEA-TR", "Saswell", model "SEA801" (to be tested)
+    '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
+    '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
     ''                  : 'UNKNOWN'      // 
 ]
                                 
