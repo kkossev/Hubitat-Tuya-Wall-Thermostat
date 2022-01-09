@@ -12,7 +12,7 @@
  * 
  *  Credits: Jaewon Park, iquix and many others
  * 
- * ver. 1.0.0 2022-01-06 kkossev  - Inital version ( development branch! )
+ * ver. 1.0.0 2022-01-06 kkossev  - Inital version
  *
 */
 import groovy.json.*
