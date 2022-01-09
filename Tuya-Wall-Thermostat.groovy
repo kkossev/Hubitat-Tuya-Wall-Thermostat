@@ -12,7 +12,8 @@
  * 
  *  Credits: Jaewon Park, iquix and many others
  * 
- * ver. 1.0.0 2022-01-06 kkossev  - Inital version
+ * ver. 1.0.0 2022-01-09 kkossev  - Inital version
+ * ver. 1.0.1 2022-01-09 kkossev  - code cleanup
  *
 */
 import groovy.json.*
@@ -22,7 +23,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.0" }
-def timeStamp() {"2022/01/09 2:12 AM"}
+def timeStamp() {"2022/01/09 2:45 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
