@@ -14,6 +14,7 @@
  * 
  * ver. 1.0.0 2022-01-09 kkossev  - Inital version
  * ver. 1.0.1 2022-01-09 kkossev  - modelGroupPreference working OK
+ * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint bug fix
  *
 */
 import groovy.json.*
@@ -22,8 +23,8 @@ import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubAction
 import hubitat.device.Protocol
 
-def version() { "1.0.1" }
-def timeStamp() {"2022/01/09 10:17 AM"}
+def version() { "1.0.2" }
+def timeStamp() {"2022/01/09 10:41 PM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -329,7 +330,7 @@ def processTuyaHeatSetpointReport( fncmd )
             setpointValue = fncmd
             break
         case 'MOES' :
-            setpointValue = fncmd * 2   // or ?
+            setpointValue = fncmd    // or ?
             break
         case 'MODEL3' :
             setpointValue = fncmd    // or * 100 / 2 ?
@@ -556,7 +557,7 @@ def setHeatingSetpoint( temperature ) {
             break
         case 'MOES' :                            // MOES - 0.5 precision? ( and double the setpoint value ? )
             dp = "10"
-            settemp = temperature * 2            // KK check!
+            settemp = temperature                // KK check!
             break
         case 'MODEL3' :
             dp = "10"
@@ -575,7 +576,7 @@ def setHeatingSetpoint( temperature ) {
             break
     }    
     // iquix code 
-    settemp += (settemp != temperature && temperature > device.currentValue("heatingSetpoint")) ? 1 : 0        // KK check !
+    //settemp += (settemp != temperature && temperature > device.currentValue("heatingSetpoint")) ? 1 : 0        // KK check !
     if (settings?.logEnable) log.debug "${device.displayName} changing setpoint to ${settemp}"
     state.setpoint = settemp
     runIn(4, setpointReceiveCheck)
@@ -619,6 +620,9 @@ def setManualMode() {
 def getModelGroup() {
     def manufacturer = device.getDataValue("manufacturer")
     def modelGroup = 'Unknown'
+    if (modelGroupPreference == null) {
+        device.updateSetting("modelGroupPreference", "Auto detect")
+    }
     if (modelGroupPreference == "Auto detect") {
         if (manufacturer in Models) {
             modelGroup = Models[manufacturer]
@@ -628,7 +632,7 @@ def getModelGroup() {
         }
     }
     else {
-         modelGroup = modelGroupPreference
+         modelGroup = modelGroupPreference 
     }
     //    log.trace "manufacturer ${manufacturer} group is ${modelGroup}"
     return modelGroup
@@ -653,7 +657,7 @@ def installed() {
 
 def updated() {
     if (modelGroupPreference == null) {
-        modelGroupPreference = "Auto detect"
+        device.updateSetting("modelGroupPreference", "Auto detect")
     }
     /* unconditional */log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue('model')} manufacturer <b>${device.getDataValue('manufacturer')}</b> modelGroupPreference = <b>${modelGroupPreference}</b> (${getModelGroup()})"
     if (settings?.txtEnable) log.info "Force manual is <b>${forceManual}</b>; Resend failed is <b>${resendFailed}</b>"
