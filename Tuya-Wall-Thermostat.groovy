@@ -12,7 +12,8 @@
  * 
  *  Credits: Jaewon Park, iquix and many others
  * 
- * ver. 1.0.0 2022-01-04 kkossev  - Inital version
+ * ver. 1.0.0 2022-01-09 kkossev  - Inital version
+ * ver. 1.0.1 2022-01-09 kkossev  - modelGroupPreference working OK
  *
 */
 import groovy.json.*
@@ -21,8 +22,8 @@ import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubAction
 import hubitat.device.Protocol
 
-def version() { "1.0.0" }
-def timeStamp() {"2022/01/09 2:12 AM"}
+def version() { "1.0.1" }
+def timeStamp() {"2022/01/09 10:17 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -38,7 +39,7 @@ metadata {
 
         //command "test"
         command "initialize"
-        command "operationMode", [ [name: "Mode", type: "ENUM", constraints: ["manual", "program"], description: "Select thermostat mode"] ]        
+        command "controlMode", [ [name: "Mode", type: "ENUM", constraints: ["manual", "program"], description: "Select thermostat control mode"] ]        
         
         // Model#1 (AVATTO)
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_ye5jkfsb",  deviceJoinName: "AVATTO Wall Thermostat" 
@@ -53,7 +54,7 @@ metadata {
         input (name: "logEnable", type: "bool", title: "<b>Debug logging</b>", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
         input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
         input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes intto schedule mode, then it automatically reverts back to manual mode</>", defaultValue: false)
-        input (name: "modelGroup", title: "Model group", description: "<i>Thermostat type</i>", type: "enum", options:["Auto detect", "AVATTO", "MOES", "MODEL3", "TEST"], defaultValue: "Auto detect", required: false)        
+        input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "MODEL3", "TEST"], defaultValue: "Auto detect", required: false)        
         input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
     }
 }
@@ -63,10 +64,14 @@ metadata {
 @Field static final Map<String, String> Models = [
     '_TZE200_ye5jkfsb'  : 'AVATTO',      // Tuya AVATTO 
     '_TZE200_aoclfnxz'  : 'MOES',        // Tuya Moes BHT series
+    '_TZE200_2ekuz3dz'  : 'MOES',        // Beok Tuya ZigBee Smart Thermostat (to be confirmed!)
     '_TZE200_other'     : 'MODEL3',      // Tuya other models (reserved)
     '_TZE200_b6wax7g0'  : 'TEST',        // BRT-100; ZONNSMART
     '_TZE200_ckud7u2l'  : 'TEST2',       // KKmoon Tuya; temp /10.0
     '_TZE200_zion52ef'  : 'TEST3',       // TRV MOES => fn = "0001 > off:  dp = "0204"  data = "02" // off; heat:  dp = "0204"  data = "01" // on; auto: n/a !; setHeatingSetpoint(preciseDegrees):   fn = "00" SP = preciseDegrees *10; dp = "1002"
+    '_TZE200_c88teujp'  : 'TEST3',       // TRV "SEA-TR", "Saswell", model "SEA801" (to be tested)
+    '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
+    '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
     ''                  : 'UNKNOWN'      // 
 ]
                                 
@@ -613,12 +618,17 @@ def setManualMode() {
 
 def getModelGroup() {
     def manufacturer = device.getDataValue("manufacturer")
-    def modelGroup
-    if (manufacturer in Models) {
-        modelGroup = Models[manufacturer]
+    def modelGroup = 'Unknown'
+    if (modelGroupPreference == "Auto detect") {
+        if (manufacturer in Models) {
+            modelGroup = Models[manufacturer]
+        }
+        else {
+             modelGroup = 'Unknown'
+        }
     }
     else {
-         modelGroup = 'Unknown'
+         modelGroup = modelGroupPreference
     }
     //    log.trace "manufacturer ${manufacturer} group is ${modelGroup}"
     return modelGroup
@@ -642,7 +652,10 @@ def installed() {
 }
 
 def updated() {
-    if (settings?.txtEnable) log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue('model')} manufacturer <b>${device.getDataValue('manufacturer')}</b> ModelGroup = ${getModelGroup()}"
+    if (modelGroupPreference == null) {
+        modelGroupPreference = "Auto detect"
+    }
+    /* unconditional */log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue('model')} manufacturer <b>${device.getDataValue('manufacturer')}</b> modelGroupPreference = <b>${modelGroupPreference}</b> (${getModelGroup()})"
     if (settings?.txtEnable) log.info "Force manual is <b>${forceManual}</b>; Resend failed is <b>${resendFailed}</b>"
     if (settings?.txtEnable) log.info "Debug logging is <b>${logEnable}</b>; Description text logging is <b>${txtEnable}</b>"
     if (logEnable==true) {
@@ -651,7 +664,7 @@ def updated() {
     else {
         unschedule(logsOff)
     }
-    if (settings?.txtEnable) log.info "Update finished"
+    /* unconditional */ log.info "Update finished"
 }
 
 def refresh() {
@@ -757,7 +770,7 @@ def logsOff(){
     device.updateSetting("logEnable",[value:"false",type:"bool"])
 }
 
-def operationMode( mode ) {
+def controlMode( mode ) {
     ArrayList<String> cmds = []
     
     switch (mode) {
