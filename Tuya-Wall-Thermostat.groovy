@@ -14,7 +14,8 @@
  * 
  * ver. 1.0.0 2022-01-09 kkossev  - Inital version
  * ver. 1.0.1 2022-01-09 kkossev  - modelGroupPreference working OK
- * ver. 1.0.2 2022-01-09 kkossev  - (development branch) MOES group heatingSetpoint bug fix
+ * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
+ * ver. 1.0.3 2022-01-09 resending heatingSetpoint max 3 retries
  *
 */
 import groovy.json.*
@@ -23,8 +24,8 @@ import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubAction
 import hubitat.device.Protocol
 
-def version() { "1.0.2" }
-def timeStamp() {"2022/01/09 10:41 PM"}
+def version() { "1.0.3" }
+def timeStamp() {"2022/01/10 12:48 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -74,6 +75,8 @@ metadata {
     '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
     ''                  : 'UNKNOWN'      // 
 ]
+
+@Field static final Integer MaxRetries = 3
                                 
 // KK TODO !
 private getCLUSTER_TUYA()       { 0xEF00 }
@@ -498,6 +501,7 @@ private int getTuyaAttributeValue(ArrayList _data) {
     return retValue
 }
 
+//  sends TuyaCommand and checks after 4 seconds
 def setThermostatMode( mode ) {
     if (settings?.logEnable) log.debug "${device.displayName} setThermostatMode(${mode})"
     
@@ -544,9 +548,11 @@ def setThermostatMode( mode ) {
     sendTuyaCommand(dp, DP_TYPE_BOOL, fn)
 }
 
-def setHeatingSetpoint( temperature ) {
+
+
+def sendTuyaHeatingSetpoint( temperature ) {
     if (settings?.logEnable) log.debug "${device.displayName} setHeatingSetpoint(${temperature})"
-    def settemp = temperature as double           // KK check! 
+    def settemp = temperature as int           // KK check! 
     def dp = "10"
     def model = getModelGroup()
     switch (model) {
@@ -582,8 +588,18 @@ def setHeatingSetpoint( temperature ) {
     sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8))
 }
 
+
+//  ThermostatHeatingSetpoint command
+//  sends TuyaCommand and checks after 4 seconds
+def setHeatingSetpoint( temperature ) {
+    state.heatingSetPointRetry = 0
+    sendTuyaHeatingSetpoint( temperature )
+}
+
+
 def setCoolingSetpoint(temperature){
     if (settings?.logEnable) log.debug "${device.displayName} setCoolingSetpoint(${temperature}) called!"
+    sendEvent(name: "coolingSetpoint", value: temperature, unit: "C", displayed: false)
     setHeatingSetpoint(temperature)
 }
 
@@ -637,6 +653,7 @@ def getModelGroup() {
     return modelGroup
 }
 
+//  called from initialize()
 def installed() {
     if (settings?.txtEnable) log.info "installed()"
     sendEvent(name: "supportedThermostatModes", value:  ["off", "heat"], isStateChange: true, displayed: true)
@@ -690,6 +707,8 @@ void initializeVars() {
     state.mode = ""
     state.setpoint = 0
     state.packetID = 0
+    state.heatingSetPointRetry = 0
+    state.modeSetRetry = 0
     //
     device.updateSetting("logEnable", true)    
     device.updateSetting("txtEnable", true)    
@@ -717,25 +736,39 @@ def initialize() {
 def modeReceiveCheck() {
     if (settings?.resendFailed == false )  return
     
-    if (settings?.logEnable) log.debug "${device.displayName} modeReceiveCheck()"
     if (state.mode != "") {
+        if (settings?.logEnable) log.warn "${device.displayName} modeReceiveCheck() <b>failed</b>"
+        /*
         if (settings?.logEnable) log.debug "${device.displayName} resending mode command :"+state.mode
         def cmds = setThermostatMode(state.mode)
         cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
+        */
+    }
+    else {
+        if (settings?.logEnable) log.debug "${device.displayName} modeReceiveCheck() OK"
     }
 }
 
 def setpointReceiveCheck() {
     if (settings?.resendFailed == false )  return
 
-    if (settings?.logEnable) log.debug "${device.displayName} setpointReceiveCheck()"
     if (state.setpoint != 0 ) {
-        if (settings?.logEnable) log.debug "${device.displayName} resending setpoint command :"+state.setpoint
-        def cmds = setHeatingSetpoint(state.setpoint)
-        cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
+        state.heatingSetPointRetry = state.heatingSetPointRetry + 1
+        if (state.heatingSetPointRetry < MaxRetries) {
+            if (settings?.logEnable) log.warn "${device.displayName} setpointReceiveCheck(${state.setpoint}) <b>failed<b/>"
+            if (settings?.logEnable) log.debug "${device.displayName} resending setpoint command :"+state.setpoint
+            sendTuyaHeatingSetpoint(state.setpoint)
+        }
+        else {
+            if (settings?.logEnable) log.warn "${device.displayName} setpointReceiveCheck(${state.setpoint}) <b>giving up retrying<b/>"
+        }
+    }
+    else {
+        if (settings?.logEnable) log.debug "${device.displayName} setpointReceiveCheck(${state.setpoint}) OK"
     }
 }
 
+//  scheduled Every1Minute from installed() ..
 def receiveCheck() {
     modeReceiveCheck()
     setpointReceiveCheck()
