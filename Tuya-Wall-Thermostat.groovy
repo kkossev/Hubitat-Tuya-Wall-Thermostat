@@ -22,7 +22,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.0" }
-def timeStamp() {"2022/01/09 1:00 AM"}
+def timeStamp() {"2022/01/09 2:12 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -323,7 +323,7 @@ def processTuyaHeatSetpointReport( fncmd )
             setpointValue = fncmd
             break
         case 'MOES' :
-            setpointValue = fncmd    // or ?
+            setpointValue = fncmd * 2   // or ?
             break
         case 'MODEL3' :
             setpointValue = fncmd    // or * 100 / 2 ?
@@ -358,12 +358,12 @@ def processTuyaTemperatureReport( fncmd )
             currentTemperatureValue = fncmd
             break
         case 'MOES' :
-            currentTemperatureValue = fncmd / 10.0
+            currentTemperatureValue = fncmd / 10.0     // confirmed to be OK!
             break
         case 'MODEL3' :
-            currentTemperatureValue = fncmd    // or * 100 / 2 ?
+            currentTemperatureValue = fncmd            // or * 100 / 2 ?
             break
-        case 'TEST' :                          // BRT-100
+        case 'TEST' :                                  // BRT-100
             currentTemperatureValue = fncmd / 10.0
             break
         case 'TEST2' :
@@ -492,8 +492,12 @@ private int getTuyaAttributeValue(ArrayList _data) {
     return retValue
 }
 
-def setThermostatMode(mode){
+def setThermostatMode( mode ) {
     if (settings?.logEnable) log.debug "${device.displayName} setThermostatMode(${mode})"
+    
+    def dp = "01"
+    def fn = mode == "heat" ? "01" : "00"
+    def model = getModelGroup()
     switch (mode) {
         case "auto" :
         case "heat" :
@@ -508,8 +512,30 @@ def setThermostatMode(mode){
             log.warn "Unsupported mode ${mode}"
             return
     }
-    runIn(4, modeReceiveCheck/*, [overwrite:true]*/)    // KK check!
-    sendTuyaCommand("01", DP_TYPE_BOOL, state.mode =="heat" ? "01" : "00")
+    switch (model) {
+        case 'AVATTO' :                          
+        case 'MOES' :
+        case 'MODEL3' :
+            dp = "01"
+            fn = state.mode == "heat" ? "01" : "00"
+            break
+        case 'TEST' :                            // BRT-100
+            dp = "04"                            
+            fn = state.mode == "heat" ? "02" : "00"
+            break
+        case 'TEST2' :                           // MOES
+        case 'TEST3' :
+            dp = "04"                            
+            fn = state.mode == "heat" ? "01" : "02"
+            break
+        case 'UNKNOWN' :
+        default :
+            dp = "04"                            
+            break
+    }     
+    
+    runIn(4, modeReceiveCheck)
+    sendTuyaCommand(dp, DP_TYPE_BOOL, fn)
 }
 
 def setHeatingSetpoint( temperature ) {
@@ -544,12 +570,6 @@ def setHeatingSetpoint( temperature ) {
     }    
     // iquix code 
     settemp += (settemp != temperature && temperature > device.currentValue("heatingSetpoint")) ? 1 : 0        // KK check !
-    
-    
-    
-    
-    
-
     if (settings?.logEnable) log.debug "${device.displayName} changing setpoint to ${settemp}"
     state.setpoint = settemp
     runIn(4, setpointReceiveCheck)
@@ -599,7 +619,7 @@ def getModelGroup() {
     else {
          modelGroup = 'Unknown'
     }
-        log.trace "manufacturer ${manufacturer} group is ${modelGroup}"
+    //    log.trace "manufacturer ${manufacturer} group is ${modelGroup}"
     return modelGroup
 }
 
