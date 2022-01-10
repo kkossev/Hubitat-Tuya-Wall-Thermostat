@@ -16,6 +16,7 @@
  * ver. 1.0.1 2022-01-09 kkossev  - modelGroupPreference working OK
  * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
  * ver. 1.0.3 2022-01-10 resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down; incorrect temperature reading check; min and max values for heatingSetpoint
+ * ver. 1.0.4 2022-01-10 (development branch)
  *
 */
 import groovy.json.*
@@ -24,8 +25,8 @@ import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubAction
 import hubitat.device.Protocol
 
-def version() { "1.0.3" }
-def timeStamp() {"2022/01/11 0:43 AM"}
+def version() { "1.0.4" }
+def timeStamp() {"2022/01/11 1:06 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
