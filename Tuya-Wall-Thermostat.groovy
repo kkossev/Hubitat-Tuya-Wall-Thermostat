@@ -15,7 +15,7 @@
  * ver. 1.0.0 2022-01-09 kkossev  - Inital version
  * ver. 1.0.1 2022-01-09 kkossev  - modelGroupPreference working OK
  * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
- * ver. 1.0.3 2022-01-10 resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down; incorrect temperature reading check
+ * ver. 1.0.3 2022-01-10 resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down; incorrect temperature reading check; min and max values for heatingSetpoint
  *
 */
 import groovy.json.*
@@ -25,7 +25,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.3" }
-def timeStamp() {"2022/01/11 0:04 AM"}
+def timeStamp() {"2022/01/11 0:43 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -54,9 +54,11 @@ metadata {
     preferences {
         input (name: "logEnable", type: "bool", title: "<b>Debug logging</b>", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
         input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
-        input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes intto schedule mode, then it automatically reverts back to manual mode</>", defaultValue: false)
-        input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "MODEL3", "TEST"], defaultValue: "Auto detect", required: false)        
+        input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes intto schedule mode, then it automatically reverts back to manual mode</i>", defaultValue: false)
         input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
+        input (name: "minTemp", type: "number", title: "Minimim Temperature", description: "<i>The Minimim temperature that can be sent to the device</i>", defaultValue: 5)
+        input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature that can be sent to the device</i>", defaultValue: 28)
+        input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "MODEL3", "TEST"], defaultValue: "Auto detect", required: false)        
     }
 }
 
@@ -659,7 +661,11 @@ def setHeatingSetpoint( temperature ) {
         }
         
         if (settings?.logEnable) log.trace "corrected temperature: ${temperature}"
-    }    
+    }  
+    if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", 5);  device.updateSetting("maxTemp", 28)   }
+    if (temperature > settings?.maxTemp.value ) temperature = settings?.maxTemp.value
+    if (temperature < settings?.minTemp.value ) temperature = settings?.minTemp.value
+    
     state.heatingSetPointRetry = 0
     sendTuyaHeatingSetpoint( temperature )
 }
@@ -786,6 +792,8 @@ void initializeVars() {
     device.updateSetting("txtEnable", true)    
     device.updateSetting("forceManual", false)    
     device.updateSetting("resendFailed", false)    
+    device.updateSetting("minTemp", 5)    
+    device.updateSetting("maxTemp", 28)    
 
 }
 
