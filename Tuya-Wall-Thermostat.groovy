@@ -25,7 +25,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.3" }
-def timeStamp() {"2022/01/10 4:56 PM"}
+def timeStamp() {"2022/01/11 0:04 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -64,7 +64,7 @@ metadata {
 
 @Field static final Map<String, String> Models = [
     '_TZE200_ye5jkfsb'  : 'AVATTO',      // Tuya AVATTO 
-    '_TZE200_aoclfnxz'  : 'MOES',        // Tuya Moes BHT series
+    '_TZE200_aoclfnxz'  : 'MOES',        // Tuya Moes BHT series Thermostat BTH-002
     '_TZE200_2ekuz3dz'  : 'MOES',        // Beok Tuya ZigBee Smart Thermostat (to be confirmed!)
     '_TZE200_other'     : 'MODEL3',      // Tuya other models (reserved)
     '_TZE200_b6wax7g0'  : 'TEST',        // BRT-100; ZONNSMART
@@ -103,7 +103,7 @@ private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
 
 // Parse incoming device messages to generate events
 def parse(String description) {
-    if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
+    //if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
         Map descMap = zigbee.parseDescriptionAsMap(description)
         if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "24") {        //getSETTIME
@@ -310,7 +310,7 @@ def parse(String description) {
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) valve position is: ${fncmd}"
                     }
-                    // TODO if (valve > 3) => On !
+                    // KK TODO if (valve > 3) => On !
                     break
                 case 0x6E :                                                 // Low battery    DP_IDENTIFIER_BATTERY 0x6E
                     if (settings?.txtEnable) log.info "${device.displayName} Battery (DP= 0x6E) is: ${fncmd}"
@@ -782,7 +782,7 @@ void initializeVars() {
     state.heatingSetPointRetry = 0
     state.modeSetRetry = 0
     //
-    device.updateSetting("logEnable", true)    
+    device.updateSetting("logEnable", false)    
     device.updateSetting("txtEnable", true)    
     device.updateSetting("forceManual", false)    
     device.updateSetting("resendFailed", false)    
