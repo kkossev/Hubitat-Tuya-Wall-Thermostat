@@ -25,7 +25,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.3" }
-def timeStamp() {"2022/01/10 10:34 AM"}
+def timeStamp() {"2022/01/10 4:56 PM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -149,7 +149,7 @@ def parse(String description) {
             switch (dp) {
                 case 0x01 :                                                 // 0x01: Heat / Off        DP_IDENTIFIER_THERMOSTAT_MODE_4 0x01 // mode for Moes device used with DP_TYPE_ENUM
                     if (getModelGroup() in ['TEST', 'TEST2']) {
-                        processBRT100Presets( fncmd )
+                        processBRT100Presets( fncmd )                       // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
                     }
                     else {
                         def mode = (fncmd == 0) ? "off" : "heat"
@@ -160,16 +160,16 @@ def parse(String description) {
                         }
                     }
                     break
-                case 0x02 :                                                 // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT 0x02 // Heatsetpoint
-                    if (getModelGroup() in ['TEST', 'TEST2']) {             // BRT-100 Thermostat heatsetpoint
-                        processTuyaHeatSetpointReport( fncmd )
+                case 0x02 : // Mode (LIDL)                                  // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT 0x02 // Heatsetpoint
+                    if (getModelGroup() in ['TEST', 'TEST2']) {             // BRT-100 Thermostat heatsetpoint # 0x0202 #
+                        processTuyaHeatSetpointReport( fncmd )              // target temp, in degrees (int!)
                         break
                     }
                     else {
                         // DP_IDENTIFIER_THERMOSTAT_MODE_2 0x02 // mode for Moe device used with DP_TYPE_ENUM
                         // continue below..
                     }
-                case 0x03 : // 0x03 : Scheduled/Manual Mode
+                case 0x03 : // 0x03 : Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)
                     // TODO - use processTuyaModes3( dp, fncmd )
                     if (descMap?.data.size() <= 7) {
                         def controlMode
@@ -189,14 +189,14 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: $controlMode (0x${fncmd})"
                         // TODO - add event !!!
                     }
-                    else {
+                    else { // # 0x0203 # BRT-100
                         // Thermostat current temperature
                         if (settings?.logEnable) log.trace "processTuyaTemperatureReport descMap?.size() = ${descMap?.data.size()} dp_id=${dp_id} <b>dp=${dp}</b> :"
                         processTuyaTemperatureReport( fncmd )
                     }
                     break
                 case 0x04 :                                                 // BRT-100 Boost    DP_IDENTIFIER_THERMOSTAT_BOOST    DP_IDENTIFIER_THERMOSTAT_BOOST 0x04 // Boost for Moes
-                    def boostMode = fncmd == 0 ? "off" : "on"                // "manual" : "boost"
+                    def boostMode = fncmd == 0 ? "off" : "on"                // 0:"off" : 1:"boost in progress"
                     if (settings?.txtEnable) log.info "${device.displayName} Boost mode is: $boostMode (0x${fncmd})"
                     // TODO - verify and use processTuyaModes4( dp, fncmd )
                     break
@@ -204,12 +204,17 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
                     break
                 // case 0x09 : // BRT-100 ?
-                case 0x07 :                                                 // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving 
-                // case 0x08 : DP_IDENTIFIER_WINDOW_OPEN2 0x08
-                case 0x0D :                                                 // BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D
-                    if (settings?.txtEnable) log.info "${device.displayName} Child Lock (dp=${dp}) is: ${fncmd}"
+                //case 0x07 :                                                 // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving 
+                case 0x07 :
+                    if (settings?.txtEnable) log.info "${device.displayName} valve starts moving: 0x${fncmd}"    // BRT-100  00-> opening; 01-> closed!
                     break
-                case 0x10 :                                                 // 0x10: Target Temperature / heating setpoint
+                case 0x08 : DP_IDENTIFIER_WINDOW_OPEN2 0x08
+                    if (settings?.txtEnable) log.info "${device.displayName} Open window detection MODE (dp=${dp}) is: ${fncmd}"    //0:function disabled / 1:function enabled
+                    break
+                case 0x0D :                                                 // BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D
+                    if (settings?.txtEnable) log.info "${device.displayName} Child Lock (dp=${dp}) is: ${fncmd}"    // 0:function disabled / 1:function enabled
+                    break
+                case 0x10 :                                                 // 0x10 (16): Heating setpoint
                     // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_3 0x10         // Heatsetpoint for TRV_MOE mode heat
                     processTuyaHeatSetpointReport( fncmd )
                     break
@@ -224,24 +229,27 @@ def parse(String description) {
                     // KK TODO - also Valve state report : on=1 / off=0 ?  DP_IDENTIFIER_THERMOSTAT_VALVE 0x14 // Valve
                     if (settings?.txtEnable) log.info "${device.displayName} Dead Zone Temp (hysteresis) is: ${fncmd}"
                     break
-                case 0x0E :                                                 // BRT-100 Battery
+                case 0x0E :                                                 // 0x0E : BRT-100 Battery # 0x020e # battery percentage (updated every 4 hours )
                 case 0x15 :
                     def battery = fncmd >100 ? 100 : fncmd
                     if (settings?.txtEnable) log.info "${device.displayName} battery is: ${fncmd} %"
                     break                
-                case 0x18 :                                                 // 0x18 : Current (local) temperature
+                case 0x18 :                                                 // 0x18(24) : Current (local) temperature
                     log.trace "processTuyaTemperatureReport dp_id=${dp_id} <b>dp=${dp}</b> :"
                     processTuyaTemperatureReport( fncmd )
                     break
                 case 0x1B :                                                 // temperature calibration (offset in degree) for Moes (calibration)  // DP_IDENTIFIER_THERMOSTAT_CALIBRATION_1 0x1B // Calibration offset used by Moes and Saswell
                     processTuyaCalibration( fncmd )
-                    break                
+                    break
+                case 0x23 :                                                // 0x23(35) LIDL BatteryVoltage
+                    if (settings?.txtEnable) log.info "${device.displayName} BatteryVoltage is: ${fncmd}"
+                    break
                 case 0x24 :                                                 // 0x24 : current (running) operating state (valve)
                     if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState is: ${fncmd ? "idle" : "heating"}"
                     sendEvent(name: "thermostatOperatingState", value: (fncmd ? "idle" : "heating"), displayed: true)
                     break
                 case 0x1E :                                                 // DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_3 0x1E // For Moes device
-                case 0x28 :                                                 // KK Child Lock    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_2 0x28
+                case 0x28 :                                                 // 0x28(40) KK Child Lock    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_2 0x28
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock is: ${fncmd}"
                     break
                 case 0x2B :                                                 // KK Sensor?
@@ -250,8 +258,9 @@ def parse(String description) {
                 case 0x2C :                                                 // temperature calibration (offset in degree)   //DP_IDENTIFIER_THERMOSTAT_CALIBRATION_2 0x2C // Calibration offset used by others
                     processTuyaCalibration( fncmd * 10)
                     break
+                // case 0x2D :        // 0x2D(45) LIDL ErrorStatus
                 // case 0x62 : // DP_IDENTIFIER_REPORTING_TIME 0x62 (Sensors)
-                case 0x65 :                                                 // AVATTO PID 
+                case 0x65 :                                                 // 0x65(101) AVATTO PID ; also LIDL ComfortTemp
                     if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"    // Model#1 only !!
                     }
@@ -259,31 +268,48 @@ def parse(String description) {
                         if (settings?.logEnable) log.info "${device.displayName} Thermostat SCHEDULE_1 data received (not processed)..."
                     }
                     break
-                case 0x66 :                                                 // min temperature limit
+                case 0x66 :                                                 // 0x66(102) min temperature limit; also LIDL EcoTemp
                     if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
                     break
-                case 0x67 :                                                 // max temperature limit
-                    if (settings?.txtEnable) log.info "${device.displayName} Max temperature limit is: ${fncmd}"
+                case 0x67 :                                                 // 0x67(103) max temperature limit; also LIDL AwaySetting
+                    if (getModelGroup() in ['TEST']) {                      // #0x0267 # Boost heating countdown in second (Received value [0, 0, 1, 44] for 300)
+                        if (settings?.txtEnable) log.info "${device.displayName} Boost heating countdown: ${fncmd} seconds"
+                    }
+                    else {
+                        if (settings?.txtEnable) log.info "${device.displayName} Max temperature limit is: ${fncmd}"
+                    }
                     // KK TODO - could be setpoint for some devices ?
-                    // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_2 0x67 // Heatsetpoint for Moe
+                    // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_2 0x67 // Heatsetpoint for Moe ?
                     break
-                case 0x68 :                                                 // DP_IDENTIFIER_THERMOSTAT_VALVE_2 0x68 // Valve
+                case 0x68 :                                                 // 0x68 (104) DP_IDENTIFIER_THERMOSTAT_VALVE_2 0x68 // Valve; also LIDL TempCalibration!
                     if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd} %"
-                    // TODO - send event! (works OK with BRT-100 )
+                    // # 0x0268 # TODO - send event! (works OK with BRT-100 (values of 25 / 50 / 75 / 100) 
                     break
-                case 0x69 :                                                 // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_4 0x69 // Heatsetpoint for TRV_MOE mode auto ?
-                    // TODO if (productId == "Tuya_THD MOES TRV")..
-                    if (settings?.txtEnable) log.info "${device.displayName} (DP=0x69) value is: ${fncmd}"
+                case 0x69 :                                                 // 0x69 (105) DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_4 0x69 // Heatsetpoint for TRV_MOE mode auto ? also LIDL
+                    // TODO if (productId == "Tuya_THD MOES TRV")..        // # 0x0269 for BRT-100 : # Temperature compensation ( Received value [255, 255, 255, 255] for -1)
+                    /*if (settings?.txtEnable)*/ log.warn "${device.displayName} (DP=0x69) ?TRV_MOE auto mode Heatsetpoint? value is: ${fncmd}"
                     break
-                // case 0x6A : // DP_IDENTIFIER_THERMOSTAT_MODE_1 0x6A // mode used with DP_TYPE_ENUM
-                case 0x6B :                                                 // DP_IDENTIFIER_TEMPERATURE 0x6B (Sensors)
-                    if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6B) temperature value is: ${fncmd}"
+                case 0x6A : // DP_IDENTIFIER_THERMOSTAT_MODE_1 0x6A // mode used with DP_TYPE_ENUM    Energy saving mode (Received value 0:off / 1:on)
+                    if (settings?.txtEnable) log.info "${device.displayName} Energy saving mode (dp=${dp}) is: ${fncmd}"    // 0:function disabled / 1:function enabled
+                    break
+                case 0x6B :                                                 // DP_IDENTIFIER_TEMPERATURE 0x6B (Sensors)  
+                    if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6B) Energy saving mode temperature value is: ${fncmd}"    // for BRT-100 # 0x026b # Energy saving mode temperature ( Received value [0, 0, 0, 15] )
                     break
                 case 0x6C :                                                 // DP_IDENTIFIER_HUMIDITY 0x6C  (Sensors)
-                    if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6C) humidity value is: ${fncmd}"
+                    if (getModelGroup() in ['TEST']) {  
+                        if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6C) Max target temp is: ${fncmd}"        // BRT-100 ( Received value [0, 0, 0, 35] )
+                    }
+                    else {
+                        if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6C) humidity value is: ${fncmd}"
+                    }
                     break
                 case 0x6D :                                                 // Valve position in % (also // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_4 0x6D // Not finished)
-                    if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) valve position is: ${fncmd}"
+                    if (getModelGroup() in ['TEST']) {                      // 0x026d # Min target temp (Received value [0, 0, 0, 5])
+                        if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) Min target temp is: ${fncmd}"
+                    }
+                    else {
+                        if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) valve position is: ${fncmd}"
+                    }
                     // TODO if (valve > 3) => On !
                     break
                 case 0x6E :                                                 // Low battery    DP_IDENTIFIER_BATTERY 0x6E
@@ -294,7 +320,8 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} reporting status state : ${descMap?.data}"
                     break
                 //case 0x71 :// DP_IDENTIFIER_THERMOSTAT_SCHEDULE_3 0x71 // holiday = Not working day (6)
-                // unprocessed -> default :
+                // case 0x74 :  // 0x74(116)- LIDL OpenwindowTemp
+                // case 0x75 :  // 0x75(117) - LIDL OpenwindowTime
                 case 0x2D : // KK Tuya cmd: dp=45 value=0 descMap.data = [00, 08, 2D, 05, 00, 01, 00]
                 case 0x6C : // KK Tuya cmd: dp=108 value=404095046 descMap.data = [00, 08, 6C, 00, 00, 18, 06, 00, 28, 08, 00, 1C, 0B, 1E, 32, 0C, 1E, 32, 11, 00, 18, 16, 00, 46, 08, 00, 50, 17, 00, 3C]
                 default :
@@ -406,7 +433,31 @@ def processTuyaCalibration( fncmd )
 def processBRT100Presets( data ) {
     def mode
     def preset
-    if (data == 0) { //programming
+    // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
+    // KK TODO - check why the difference for values 0 and 3 ?
+/*
+0x0401 :
+0 : Manual Mode
+1 : Holiday Mode
+2 : Temporary Manual Mode (will return to Schedule mode at the next schedule time)
+3 : Schedule Programming Mode
+
+
+TRV sends those values when changing modes:
+1 for Manual
+0 for Schedule
+2 for Temporary manual (in Schedule)
+3 for Away
+
+Schedule -> [0] for attribute 0x0401
+Manual -> [1] for attribute 0x0401
+Temp Manual -> [2] for attribute 0x0401
+Holiday -> [3] for attribute 0x0401
+
+*/
+    
+    
+    if (data == 0) { //programming (schedule )
         mode = "auto"
         preset = "auto"
     }
@@ -537,7 +588,7 @@ def setThermostatMode( mode ) {
             dp = "04"                            
             fn = state.mode == "heat" ? "02" : "00"
             break
-        case 'TEST2' :                           // MOES
+        case 'TEST2' :                           // MOES TRV
         case 'TEST3' :
             dp = "04"                            
             fn = state.mode == "heat" ? "01" : "02"
@@ -595,6 +646,7 @@ def sendTuyaHeatingSetpoint( temperature ) {
 
 //  ThermostatHeatingSetpoint command
 //  sends TuyaCommand and checks after 4 seconds
+//  1°C steps. (0.5°C setting on the TRV itself, rounded for zigbee interface)
 def setHeatingSetpoint( temperature ) {
     def previousSetpoint = device.currentState('heatingSetpoint').value as int
     if (settings?.logEnable) log.trace "setHeatingSetpoint temperature = ${temperature}  as int = ${temperature as int} (previousSetpointt = ${previousSetpoint})"
