@@ -15,7 +15,7 @@
  * ver. 1.0.0 2022-01-09 kkossev  - Inital version
  * ver. 1.0.1 2022-01-09 kkossev  - modelGroupPreference working OK
  * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
- * ver. 1.0.3 2022-01-10 resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down
+ * ver. 1.0.3 2022-01-10 resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down; incorrect temperature reading check
  *
 */
 import groovy.json.*
@@ -25,7 +25,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.3" }
-def timeStamp() {"2022/01/10 7:33 AM"}
+def timeStamp() {"2022/01/10 10:34 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -351,7 +351,6 @@ def processTuyaHeatSetpointReport( fncmd )
     }
     if (settings?.txtEnable) log.info "${device.displayName} heatingSetpoint is: ${setpointValue}"
     sendEvent(name: "heatingSetpoint", value: setpointValue as int, unit: "C", displayed: true)
-    // sendEvent(name: "coolingSetpoint", value: setpointValue as int, unit: "C", displayed: false)
     sendEvent(name: "thermostatSetpoint", value: setpointValue as int, unit: "C", displayed: false)        // Google Home compatibility
     if (setpointValue == state.setpoint)  {
         state.setpoint = 0
@@ -377,12 +376,17 @@ def processTuyaTemperatureReport( fncmd )
             break
         case 'TEST2' :
         case 'TEST3' :
+            currentTemperatureValue = fncmd / 10.0
             break
         case 'UNKNOWN' :
         default :
             currentTemperatureValue = fncmd
             break
     }    
+    if (currentTemperatureValue > 60 || currentTemperatureValue < 1) {
+        log.warn "${device.displayName} invalid temperature : ${currentTemperatureValue}"
+        return
+    }
     if (settings?.txtEnable) log.info "${device.displayName} temperature is: ${currentTemperatureValue}"
     sendEvent(name: "temperature", value: currentTemperatureValue, unit: "C", displayed: true)
 }
