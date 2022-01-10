@@ -15,7 +15,7 @@
  * ver. 1.0.0 2022-01-09 kkossev  - Inital version
  * ver. 1.0.1 2022-01-09 kkossev  - modelGroupPreference working OK
  * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
- * ver. 1.0.3 2022-01-09 resending heatingSetpoint max 3 retries
+ * ver. 1.0.3 2022-01-10 resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down
  *
 */
 import groovy.json.*
@@ -25,7 +25,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 
 def version() { "1.0.3" }
-def timeStamp() {"2022/01/10 12:48 AM"}
+def timeStamp() {"2022/01/10 7:33 AM"}
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -191,7 +191,7 @@ def parse(String description) {
                     }
                     else {
                         // Thermostat current temperature
-                        log.trace "processTuyaTemperatureReport descMap?.size() = ${descMap?.data.size()} dp_id=${dp_id} <b>dp=${dp}</b> :"
+                        if (settings?.logEnable) log.trace "processTuyaTemperatureReport descMap?.size() = ${descMap?.data.size()} dp_id=${dp_id} <b>dp=${dp}</b> :"
                         processTuyaTemperatureReport( fncmd )
                     }
                     break
@@ -551,7 +551,7 @@ def setThermostatMode( mode ) {
 
 
 def sendTuyaHeatingSetpoint( temperature ) {
-    if (settings?.logEnable) log.debug "${device.displayName} setHeatingSetpoint(${temperature})"
+    if (settings?.logEnable) log.debug "${device.displayName} sendTuyaHeatingSetpoint(${temperature})"
     def settemp = temperature as int           // KK check! 
     def dp = "10"
     def model = getModelGroup()
@@ -592,6 +592,18 @@ def sendTuyaHeatingSetpoint( temperature ) {
 //  ThermostatHeatingSetpoint command
 //  sends TuyaCommand and checks after 4 seconds
 def setHeatingSetpoint( temperature ) {
+    def previousSetpoint = device.currentState('heatingSetpoint').value as int
+    if (settings?.logEnable) log.trace "setHeatingSetpoint temperature = ${temperature}  as int = ${temperature as int} (previousSetpointt = ${previousSetpoint})"
+    if (temperature != (temperature as int)) {
+        if (temperature > previousSetpoint) {
+            temperature = (temperature + 0.5 ) as int
+        }
+        else {
+            temperature = temperature as int
+        }
+        
+        if (settings?.logEnable) log.trace "corrected temperature: ${temperature}"
+    }    
     state.heatingSetPointRetry = 0
     sendTuyaHeatingSetpoint( temperature )
 }
@@ -599,8 +611,12 @@ def setHeatingSetpoint( temperature ) {
 
 def setCoolingSetpoint(temperature){
     if (settings?.logEnable) log.debug "${device.displayName} setCoolingSetpoint(${temperature}) called!"
+    if (temperature != (temperature as int)) {
+        temperature = (temperature + 0.5 ) as int
+        log.trace "corrected temperature: ${temperature}"
+    }
     sendEvent(name: "coolingSetpoint", value: temperature, unit: "C", displayed: false)
-    setHeatingSetpoint(temperature)
+    // setHeatingSetpoint(temperature)    // KK check!
 }
 
 def heat(){
