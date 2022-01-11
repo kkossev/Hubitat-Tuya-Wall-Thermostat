@@ -21,7 +21,7 @@
 */
 
 def version() { "1.0.4" }
-def timeStamp() {"2022/01/11 10:50 PM"}
+def timeStamp() {"2022/01/11 11:25 PM"}
 
 
 /* model         ! 0x10 (16)       ! 0x18 (24)         ! 0x68 (104)       !
@@ -389,8 +389,10 @@ def processTuyaHeatSetpointReport( fncmd )
             setpointValue = fncmd
             break
         case 'MOES' :
-        case 'BEOK' :
             setpointValue = fncmd    // or ? s
+            break
+        case 'BEOK' :
+            setpointValue = fncmd / 10.0
             break
         case 'MODEL3' :
             setpointValue = fncmd    // or * 100 / 2 ?
