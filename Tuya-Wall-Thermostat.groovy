@@ -16,18 +16,19 @@
  * ver. 1.0.1 2022-01-09 kkossev  - modelGroupPreference working OK
  * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
  * ver. 1.0.3 2022-01-10 resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down; incorrect temperature reading check; min and max values for heatingSetpoint
- * ver. 1.0.4 2022-01-10 (development branch) - reads temp. calibreation for AVATTO, patch: temperatures > 50 are divided by 10!; AVATO parameters decoding
+ * ver. 1.0.4 2022-01-10 (development branch) - reads temp. calibration for AVATTO, patch: temperatures > 50 are divided by 10!; AVATO parameters decoding; added BEOK model
  *
 */
 
 def version() { "1.0.4" }
-def timeStamp() {"2022/01/11 10:27 PM"}
+def timeStamp() {"2022/01/11 10:50 PM"}
 
 
 /* model         ! 0x10 (16)       ! 0x18 (24)         ! 0x68 (104)       !
 ! ============== ! heatingSetpoint ! local temperature ! temp calibration !
 ! AVATTO         !
 ! MOES           !
+! BEOK           !
 ! MODEL3         !
 ! TEST (BRT-100) !
 !Lidl Silvercrest! value / 2 (1dp) ! value / 10 (1dp)  ! value / 10 (1dp) !
@@ -76,7 +77,7 @@ metadata {
         input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
         input (name: "minTemp", type: "number", title: "Minimim Temperature", description: "<i>The Minimim temperature that can be sent to the device</i>", defaultValue: 5)
         input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature that can be sent to the device</i>", defaultValue: 28)
-        input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "MODEL3", "TEST"], defaultValue: "Auto detect", required: false)        
+        input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "TEST"], defaultValue: "Auto detect", required: false)        
     }
 }
 
@@ -85,7 +86,7 @@ metadata {
 @Field static final Map<String, String> Models = [
     '_TZE200_ye5jkfsb'  : 'AVATTO',      // Tuya AVATTO 
     '_TZE200_aoclfnxz'  : 'MOES',        // Tuya Moes BHT series Thermostat BTH-002
-    '_TZE200_2ekuz3dz'  : 'MOES',        // Beok Tuya ZigBee Smart Thermostat (to be confirmed!)
+    '_TZE200_2ekuz3dz'  : 'BEOK',        // Beok thermostat
     '_TZE200_other'     : 'MODEL3',      // Tuya other models (reserved)
     '_TZE200_b6wax7g0'  : 'TEST',        // BRT-100; ZONNSMART
     '_TZE200_ckud7u2l'  : 'TEST2',       // KKmoon Tuya; temp /10.0
@@ -388,6 +389,7 @@ def processTuyaHeatSetpointReport( fncmd )
             setpointValue = fncmd
             break
         case 'MOES' :
+        case 'BEOK' :
             setpointValue = fncmd    // or ? s
             break
         case 'MODEL3' :
@@ -422,6 +424,7 @@ def processTuyaTemperatureReport( fncmd )
             currentTemperatureValue = fncmd
             break
         case 'MOES' :
+        case 'BEOK' :
             currentTemperatureValue = fncmd / 10.0     // confirmed to be OK!
             break
         case 'MODEL3' :
@@ -612,6 +615,7 @@ def setThermostatMode( mode ) {
     switch (model) {
         case 'AVATTO' :                          
         case 'MOES' :
+        case 'BEOK' :
         case 'MODEL3' :
             dp = "01"
             fn = state.mode == "heat" ? "01" : "00"
@@ -651,6 +655,10 @@ def sendTuyaHeatingSetpoint( temperature ) {
             dp = "10"
             settemp = temperature                // KK check!
             break
+        case 'BEOK' :                            // 
+            dp = "10"
+            settemp = temperature * 10               
+            break
         case 'MODEL3' :
             dp = "10"
             settemp = temperature
@@ -670,7 +678,7 @@ def sendTuyaHeatingSetpoint( temperature ) {
     // iquix code 
     //settemp += (settemp != temperature && temperature > device.currentValue("heatingSetpoint")) ? 1 : 0        // KK check !
     if (settings?.logEnable) log.debug "${device.displayName} changing setpoint to ${settemp}"
-    state.setpoint = settemp
+    state.setpoint = temperature    // KK was settemp !! CHECK !
     runIn(4, setpointReceiveCheck)
     sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8))
 }
