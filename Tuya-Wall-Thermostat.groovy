@@ -17,11 +17,13 @@
  * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
  * ver. 1.0.3 2022-01-10 kkossev  - resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down; incorrect temperature reading check; min and max values for heatingSetpoint
  * ver. 1.0.4 2022-01-11 kkossev  - reads temp. calibration for AVATTO, patch: temperatures > 50 are divided by 10!; AVATO parameters decoding; added BEOK model
+ * ver. 1.0.5 2022-01-13 kkossev  - 2E+1 bug fixed; added rxCounter, txCounter, duplicateCounter
+ *                                  TODO: BRT-100 thermostatOperatingState depending on valve ? (valve starts moving: 0x0 - ON); 
  *
 */
 
-def version() { "1.0.4" }
-def timeStamp() {"2022/01/11 11:25 PM"}
+def version() { "1.0.5" }
+def timeStamp() {"2022/01/13 7:43 AM"}
 
 
 /* model         ! 0x10 (16)       ! 0x18 (24)         ! 0x68 (104)       !
@@ -31,7 +33,7 @@ def timeStamp() {"2022/01/11 11:25 PM"}
 ! BEOK           !
 ! MODEL3         !
 ! TEST (BRT-100) !
-!Lidl Silvercrest! value / 2 (1dp) ! value / 10 (1dp)  ! value / 10 (1dp) !
+! Lidl           ! value / 2 (1dp) ! value / 10 (1dp)  ! value / 10 (1dp) !
 !                !
 !                !
 */
@@ -125,6 +127,7 @@ private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
 
 // Parse incoming device messages to generate events
 def parse(String description) {
+    if (state.rxCounter != null) state.rxCounter = state.rxCounter + 1
     //if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
         Map descMap = zigbee.parseDescriptionAsMap(description)
@@ -141,6 +144,7 @@ def parse(String description) {
             // log.trace "${device.displayName} now is: ${now()}"  // KK TODO - converto to Date/Time string!        
             if (settings?.logEnable) log.debug "${device.displayName} sending time data : ${cmds}"
             cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
+            if (state.txCounter != null) state.txCounter = state.txCounter + 1
             state.old_dp = ""
             state.old_fncmd = ""
             
@@ -162,6 +166,7 @@ def parse(String description) {
             def fncmd = getTuyaAttributeValue(descMap?.data)                 // 
             if (dp == state.old_dp && fncmd == state.old_fncmd) {
                 if (settings?.logEnable) log.warn "(duplicate) transid=${transid} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
+                if ( state.duplicateCounter != null ) state.duplicateCounter = state.duplicateCounter +1
                 return
             }
             //log.trace " dp_id=${dp_id} dp=${dp} fncmd=${fncmd}"
@@ -230,7 +235,7 @@ def parse(String description) {
                 case 0x07 :
                     if (settings?.txtEnable) log.info "${device.displayName} valve starts moving: 0x${fncmd}"    // BRT-100  00-> opening; 01-> closed!
                     break
-                case 0x08 : DP_IDENTIFIER_WINDOW_OPEN2 0x08
+                case 0x08 :                                                 // DP_IDENTIFIER_WINDOW_OPEN2 0x08
                     if (settings?.txtEnable) log.info "${device.displayName} Open window detection MODE (dp=${dp}) is: ${fncmd}"    //0:function disabled / 1:function enabled
                     break
                 case 0x0D :                                                 // 0x0D (13) BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D MOES, LIDL
@@ -282,7 +287,7 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} Sensor is: ${fncmd==0?'In':fncmd==1?'Out':fncmd==2?'In and Out':'UNKNOWN'} (${fncmd})"
                     break
                 case 0x2C :                                                 // temperature calibration (offset in degree)   //DP_IDENTIFIER_THERMOSTAT_CALIBRATION_2 0x2C // Calibration offset used by others
-                    processTuyaCalibration( dp, fncmd /* * 10*/)
+                    processTuyaCalibration( dp, fncmd )
                     break
                 // case 0x2D :        // 0x2D(45) LIDL ErrorStatus
                 // case 0x62 : // DP_IDENTIFIER_REPORTING_TIME 0x62 (Sensors)
@@ -316,9 +321,13 @@ def parse(String description) {
                     }
                     // # 0x0268 # TODO - send event! (works OK with BRT-100 (values of 25 / 50 / 75 / 100) 
                     break
-                case 0x69 :                                                 // 0x69 (105) DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_4 0x69 // Heatsetpoint for TRV_MOE mode auto ? also LIDL
-                    // TODO if (productId == "Tuya_THD MOES TRV")..        // # 0x0269 for BRT-100 : # Temperature compensation ( Received value [255, 255, 255, 255] for -1)
-                    /*if (settings?.txtEnable)*/ log.warn "${device.displayName} (DP=0x69) ?TRV_MOE auto mode Heatsetpoint? value is: ${fncmd}"
+                case 0x69 :                                                 // 0x69 (105) BRT-100 temp calibration // could be also Heatsetpoint for TRV_MOE mode auto ? also LIDL
+                    if (getModelGroup() in ['TEST']) {
+                        processTuyaCalibration( dp, fncmd )
+                    }
+                    else {
+                         log.warn "${device.displayName} (DP=0x69) ?TRV_MOE auto mode Heatsetpoint? value is: ${fncmd}"
+                    }
                     break
                 case 0x6A : // DP_IDENTIFIER_THERMOSTAT_MODE_1 0x6A // mode used with DP_TYPE_ENUM    Energy saving mode (Received value 0:off / 1:on)
                     if (settings?.txtEnable) log.info "${device.displayName} Energy saving mode? (dp=${dp}) is: ${fncmd} data = ${descMap?.data})"    // 0:function disabled / 1:function enabled
@@ -420,7 +429,7 @@ def processTuyaHeatSetpointReport( fncmd )
 
 def processTuyaTemperatureReport( fncmd )
 {
-    def currentTemperatureValue
+    double currentTemperatureValue        // KK - check !! 2E+1 problem ?
     def model = getModelGroup()
     switch (model) {
         case 'AVATTO' :
@@ -449,6 +458,7 @@ def processTuyaTemperatureReport( fncmd )
         log.warn "${device.displayName} invalid temperature : ${currentTemperatureValue}"
         // auto correct patch!
         currentTemperatureValue = currentTemperatureValue / 10.0
+        log.warn "auto correct patch for temperature!"
     }
     if (settings?.txtEnable) log.info "${device.displayName} temperature is: ${currentTemperatureValue}"
     sendEvent(name: "temperature", value: currentTemperatureValue, unit: "C", displayed: true)
@@ -457,7 +467,7 @@ def processTuyaTemperatureReport( fncmd )
 def processTuyaCalibration( dp, fncmd )
 {
     def temp = fncmd 
-    if (getModelGroup() in ['AVATTO'] ){    // (dp=27, fncmd=-1)
+    if (getModelGroup() in ['AVATTO', 'TEST'] ){    // (dp=27, fncmd=-1)
     }
     else {    // "_TZE200_aoclfnxz"
         if (temp > 2048) {
@@ -828,6 +838,9 @@ void initializeVars() {
     state.packetID = 0
     state.heatingSetPointRetry = 0
     state.modeSetRetry = 0
+    state.rxCounter = 0
+    state.txCounter = 0
+    state.duplicateCounter = 0
     //
     device.updateSetting("logEnable", false)    
     device.updateSetting("txtEnable", true)    
@@ -889,7 +902,7 @@ def setpointReceiveCheck() {
     }
 }
 
-//  scheduled Every1Minute from installed() ..
+//  unconditionally scheduled Every1Minute from installed() ..
 def receiveCheck() {
     modeReceiveCheck()
     setpointReceiveCheck()
@@ -899,6 +912,7 @@ private sendTuyaCommand(dp, dp_type, fncmd) {
     ArrayList<String> cmds = []
     cmds += zigbee.command(CLUSTER_TUYA, SETDATA, PACKET_ID + dp + dp_type + zigbee.convertToHexString((int)(fncmd.length()/2), 4) + fncmd )
     if (settings?.logEnable) log.trace "sendTuyaCommand = ${cmds}"
+    if (state.txCounter != null) state.txCounter = state.txCounter + 1
     return cmds
 }
 
@@ -907,6 +921,7 @@ void sendZigbeeCommands(ArrayList<String> cmd) {
     hubitat.device.HubMultiAction allActions = new hubitat.device.HubMultiAction()
     cmd.each {
             allActions.add(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE))
+            if (state.txCounter != null) state.txCounter = state.txCounter + 1
     }
     sendHubCommand(allActions)
 }
