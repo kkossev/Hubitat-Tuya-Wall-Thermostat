@@ -17,13 +17,13 @@
  * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
  * ver. 1.0.3 2022-01-10 kkossev  - resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down; incorrect temperature reading check; min and max values for heatingSetpoint
  * ver. 1.0.4 2022-01-11 kkossev  - reads temp. calibration for AVATTO, patch: temperatures > 50 are divided by 10!; AVATO parameters decoding; added BEOK model
- * ver. 1.0.5 2022-01-13 kkossev  - 2E+1 bug fixed; added rxCounter, txCounter, duplicateCounter
- *                                  TODO: BRT-100 thermostatOperatingState depending on valve ? (valve starts moving: 0x0 - ON); 
+ * ver. 1.0.5 2022-01-13 kkossev  - 2E+1 bug fixed; added rxCounter, txCounter, duplicateCounter; ChildLock control
+ *                                  TODO: BRT-100 thermostatOperatingState depending on valve ? (valve starts moving: 0x0 - ON); TODO - BRT-100 mode receive check fails !! TODO Force Manual mode works 1-2 times, then stops?
  *
 */
 
 def version() { "1.0.5" }
-def timeStamp() {"2022/01/13 7:43 AM"}
+def timeStamp() {"2022/01/14 8:36 AM"}
 
 
 /* model         ! 0x10 (16)       ! 0x18 (24)         ! 0x68 (104)       !
@@ -38,6 +38,18 @@ def timeStamp() {"2022/01/13 7:43 AM"}
 !                !
 */
 
+/*------model---------!----------AVATTO--------!
+! Rx Temperature      !
+! Rx HeatingSetpoint  !
+! Rx OperationMode    !0x02: manu(0)/sched(1)  !
+! Rx ThermostatMode   !0x01: off(0)/heat(1)    !
+! Rx OperatingState   !0x24: idle(0)/heating(1)!  
+! Tx HeatingSetpoint  !
+! Rx maxTempLimit     !0x13: integer           ! 
+! Rx/Tx ChildLock     !0x28: 0/1
+!
+!
+*/
 
 
 
@@ -62,6 +74,7 @@ metadata {
         //command "test"
         command "initialize"
         command "controlMode", [ [name: "Mode", type: "ENUM", constraints: ["manual", "program"], description: "Select thermostat control mode"] ]        
+        command "childLock", [ [name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]        
         
         // Model#1 (AVATTO)
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_ye5jkfsb",  deviceJoinName: "AVATTO Wall Thermostat" 
@@ -180,7 +193,7 @@ def parse(String description) {
                     }
                     else {
                         def mode = (fncmd == 0) ? "off" : "heat"
-                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: ${mode}"
+                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: ${mode} (dp=${dp}, fncmd=${fncmd})"
                         sendEvent(name: "thermostatMode", value: mode, displayed: true)
                         if (mode == state.mode) {
                             state.mode = ""
@@ -213,7 +226,7 @@ def parse(String description) {
                         } else {
                             controlMode = "manual"
                         }
-                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: $controlMode (0x${fncmd})"
+                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: $controlMode (0x${fncmd}) (dp=${dp}, fncmd=${fncmd})"
                         // TODO - add event !!!
                     }
                     else { // # 0x0203 # BRT-100
@@ -275,11 +288,12 @@ def parse(String description) {
                 case 0x23 :                                                // 0x23(35) LIDL BatteryVoltage
                     if (settings?.txtEnable) log.info "${device.displayName} BatteryVoltage is: ${fncmd}"
                     break
-                case 0x24 :                                                 // 0x24 : current (running) operating state (valve)
-                    if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState is: ${fncmd ? "idle" : "heating"}"
+                case 0x24 :                                                 // 0x24(36) : current (running) operating state (valve)
+                    if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState is: ${fncmd ? "idle" : "heating"} (dp=${dp}, fncmd=${fncmd})"
                     sendEvent(name: "thermostatOperatingState", value: (fncmd ? "idle" : "heating"), displayed: true)
                     break
                 case 0x1E :                                                 // DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_3 0x1E // For Moes device
+                //case  0x27 :                                                // AVATTO - RESET?
                 case 0x28 :                                                 // 0x28(40) KK Child Lock    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_2 0x28
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock is: ${fncmd}"
                     break
@@ -960,5 +974,26 @@ def controlMode( mode ) {
     sendZigbeeCommands( cmds )
 }
 
+
+def childLock( mode ) {
+    ArrayList<String> cmds = []
+    def dp
+    if (getModelGroup() in ["AVATTO"]) dp = "28"
+    else if (getModelGroup() in ["TEST"]) dp = "0D"
+    else return
+        
+    switch (mode) {
+        case "off" : 
+            cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "00")
+            break
+        case "on" :
+            cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "01")
+            break
+        default :
+            break
+    }
+    if (settings?.logEnable) log.trace "${device.displayName} sending child lock mode : ${mode}"
+    sendZigbeeCommands( cmds )    
+}
 
 
