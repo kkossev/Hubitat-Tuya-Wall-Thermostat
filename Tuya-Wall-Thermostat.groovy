@@ -17,42 +17,19 @@
  * ver. 1.0.2 2022-01-09 kkossev  - MOES group heatingSetpoint and setpointReceiveCheck() bug fixes
  * ver. 1.0.3 2022-01-10 kkossev  - resending heatingSetpoint max 3 retries; heatSetpoint rounding up/down; incorrect temperature reading check; min and max values for heatingSetpoint
  * ver. 1.0.4 2022-01-11 kkossev  - reads temp. calibration for AVATTO, patch: temperatures > 50 are divided by 10!; AVATO parameters decoding; added BEOK model
- * ver. 1.0.5 2022-01-15 kkossev  - 2E+1 bug fixed; added rxCounter, txCounter, duplicateCounter; ChildLock control
- *                                  TODO: BRT-100 thermostatOperatingState depending on valve ? (valve starts moving: 0x0 - ON); TODO - BRT-100 mode receive check fails !! TODO Force Manual mode works 1-2 times, then stops?
+ * ver. 1.0.5 2022-01-15 kkossev  - 2E+1 bug fixed; added rxCounter, txCounter, duplicateCounter; ChildLock control; if boost (emergency) mode was on, then auto() heat() off() commands cancel it;
+ *                                  BRT-100 thermostatOperatingState changes on valve report; 
+ *
+ *                                  TODO - BRT-100 mode receive check fails !! TODO Force Manual mode works 1-2 times, then stops?
  *                                  TODO: in Initialize do not reset parameters if exist and within limits
- *                                  TODO: if emergency mode was off, then auto() heat() off() commands should cancel it!
  *                                  TODO: process RV Moes BRT-100 Valve position is: 0% (dp=104, fncmd=0) 
+ *                                  TODO: AVATTO modes auto and heat - remove the current 'Control Mode' command!
+ *                                  TODO: handle preset = holiday (Eco mode) for BRT-100
  *
 */
 
 def version() { "1.0.5" }
-def timeStamp() {"2022/01/15 2:29 PM"}
-
-
-
-/*
-!----------model---------!----------AVATTO--------!-----------MOES---------!----------BEOK----------!---------BRT-100--------!----------LIDL----------!
-! ThermostatMode off     | 0x01: off(0)           !                        !                        !                        !                        ! On/Off
-! ThermostatMode heat    | off(0)/heat(1)    !                        !                        !                        !                        ! On/Off
-! ThermostatMode auto    | off(0)/heat(1)    !                        !                        !                        !                        ! On/Off
-! ThermostatMode (Rx/Tx) !0x01: off(0)/heat(1)    !                        !                        !                        !                        ! On/Off
-! OperationMode  (Rx/Tx) !0x02: manu(0)/sched(1)  !                        !                        !                        !                        ! TODO: change to ThermostatMode (off, heat(manual), auto(scheduled), ...)
-! HeatingSetpoint(Rx/Tx) !0x10: integer           !                        !                        !                        ! 0x10 value / 2 (1dp)   !
-! maxTempLimit           !0x13: integer           !                        !                        !                        !                        ! 
-! Temperature (Rx only!) !0x18: integer           !                        !                        !                        ! 0x18 value / 10 (1dp)  !
-! OperatingState(Rx only!!0x24: idle(0)/heating(1)!                        !                        !                        !                        !  
-! ChildLock (Rx/Tx)      !0x28: 0/1               !                        !                        !                        !                        !
-! Temp calibration       !0x68:                   !                        !                        !                        ! 0x68:value / 10 (1dp)  !
-! MinTemp (Rx/Tx)        !0x1A:                   !                        !                        !                        !                        !
-! PID setpoint (Rx only) !0x65: integer           !         ---            !          ---           !          ---           !          ---           !
-!                        !                        !                        !                        !                        !                        !
-!                        !                        !                        !                        !                        !                        !
-!                        !                        !                        !                        !                        !                        !
-!                        !                        !                        !                        !                        !                        !
-!------------------------!------------------------!------------------------!------------------------!------------------------!------------------------!
-*/
-
-
+def timeStamp() {"2022/01/15 7:10 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -82,6 +59,7 @@ metadata {
         // (Moes)
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_aoclfnxz",  deviceJoinName: "Moes Wall Thermostat" // BHT-002
         // (unknown)
+        fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_unknown",  deviceJoinName: "_TZE200_ Thermostat" // unknown
         // (BEOK)
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_2ekuz3dz",  deviceJoinName: "Beok Wall Thermostat" // 
         // TEST (BRT-100 for dev tests only!)
@@ -422,13 +400,13 @@ def processTuyaHeatSetpointReport( fncmd )
             setpointValue = fncmd
             break
         case 'MOES' :
-            setpointValue = fncmd    // or ? s
+            setpointValue = fncmd
             break
         case 'BEOK' :
             setpointValue = fncmd / 10.0
             break
         case 'MODEL3' :
-            setpointValue = fncmd    // or * 100 / 2 ?
+            setpointValue = fncmd
             break
         case 'TEST' :
             setpointValue = fncmd
@@ -624,12 +602,15 @@ def processTuyaBoostModeReport( fncmd )
         sendEvent(name: "thermostatOperatingState", value: "heating", displayed: false)
     }
     else {
-        // restore the lastThermostatMode
-        if (settings?.txtEnable) log.info "${device.displayName} restoring the lastThermostatMode: ${state.lastThermostatMode}"
-        setThermostatMode(state.lastThermostatMode)
+        if (device.currentState('thermostatMode').value == "emergency heat") {
+            // restore the lastThermostatMode
+            if (settings?.txtEnable) log.info "${device.displayName} restoring the lastThermostatMode: ${state.lastThermostatMode}"
+            setThermostatMode(state.lastThermostatMode)
+        }
+        else {
+            if (settings?.logEnable) log.debug "boost is already off - last thermostatMode was ${device.currentState('thermostatMode').value}"
+        }
     }
-   
-
 }
 
 
@@ -647,10 +628,29 @@ private int getTuyaAttributeValue(ArrayList _data) {
     return retValue
 }
 
+def guessThermostatOperatingState() {
+    try {
+        double dTemp = Double.parseDouble(device.currentState('temperature').value)
+        double dSet  = Double.parseDouble(device.currentState('heatingSetpoint').value)
+ 
+        if (dTemp >= dSet) {
+            if (settings?.txtEnable) log.debug "guessing operating state is IDLE"
+            return "idle"
+        }
+        else {
+            if (settings?.txtEnable) log.debug "guessing operating state is HEAT"
+            return "heat"
+        }
+    }
+    catch (NumberFormatException e) {
+        return "unknown"
+    }
+}
+
 def sendTuyaBoostModeOff() {
     ArrayList<String> cmds = []
     if (settings?.txtEnable) log.info "${device.displayName} turning Boost mode off"
-    sendEvent(name: "thermostatOperatingState", value: "boost off", displayed: false)
+    sendEvent(name: "thermostatOperatingState", value: guessThermostatOperatingState(), displayed: false)
     cmds = sendTuyaCommand("04", DP_TYPE_BOOL, "00")
     sendZigbeeCommands( cmds )    
 }
@@ -665,13 +665,11 @@ def sendTuyaThermostatMode( mode ) {
                 dp = "01"
                 fn = "00"
             }
-            else if (model in ['TEST']) {    // BRT-100    also reffered as 'holiday' or 'away'
-                //dp = "04"     // boost mode off                           
-                //fn = "00"
-                dp = "01"   // was 04                         
-                fn = "03"    // was 02 ?
+            else if (model in ['TEST']) {    // BRT-100: off mode is also reffered as 'holiday' or 'away'
+                dp = "01"
+                fn = "03"
                 if (state.lastThermostatMode == "emergency heat") {
-                    runIn(2, sendTuyaBoostModeOff)    // also turn boost off!
+                    runIn(2, sendTuyaBoostModeOff)    // also turn boost off after 2 seconds!
                 }
                 return sendTuyaCommand(dp, DP_TYPE_ENUM, fn)    // BRT-100 DP=1 needs DP_TYPE_ENUM!                
             }
@@ -681,13 +679,13 @@ def sendTuyaThermostatMode( mode ) {
             }
             break
         case "heat" :    // manual mode
-            if (model in ['AVATTO', 'MOES', 'BEOK', 'MODEL3']) {    // TODO - does not switch off Scheduled (auto) mode !
+            if (model in ['AVATTO', 'MOES', 'BEOK', 'MODEL3']) {    // TODO - this command only does not switch off Scheduled (auto) mode !
                 dp = "01"
                 fn = "01"
             }
-            else if (model in ['TEST']) {
-                dp = "01"   // was 04                         
-                fn = "01"    // was 02 ?
+            else if (model in ['TEST']) {    // BRT-100
+                dp = "01"
+                fn = "01"
                 return sendTuyaCommand(dp, DP_TYPE_ENUM, fn)    // BRT-100 DP=1 needs DP_TYPE_ENUM!
             }
             else {    // all other models    // not tested!
@@ -707,8 +705,8 @@ def sendTuyaThermostatMode( mode ) {
                 return sendTuyaCommand(dp, DP_TYPE_ENUM, fn)    // BRT-100 DP=1 needs DP_TYPE_ENUM!
             }
             else {    // all other models    // not tested!
-                dp = "04"                            
-                fn = "01"    // not tested !
+                dp = "01"                            
+                fn = "01"    // not tested ! (same as heat)
             }
             break
         case "emergency heat" :
