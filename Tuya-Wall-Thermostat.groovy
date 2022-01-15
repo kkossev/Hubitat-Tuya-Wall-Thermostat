@@ -1115,8 +1115,10 @@ def calibration( offset ) {
 
 def zTest( dpCommand, dpValue, dpTypeString ) {
     ArrayList<String> cmds = []
-    dpType = dpTypeString=="DP_TYPE_VALUE" ? DP_TYPE_VALUE : dpTypeString=="DP_TYPE_BOOL" ? DP_TYPE_BOOL : dpTypeString=="DP_TYPE_ENUM" ? DP_TYPE_ENUM : null
-    log.warn "${device.displayName} sending test command=${dpCommand} value=${dpCommand} type=${dpType}"
+    def dpType   = dpTypeString=="DP_TYPE_VALUE" ? DP_TYPE_VALUE : dpTypeString=="DP_TYPE_BOOL" ? DP_TYPE_BOOL : dpTypeString=="DP_TYPE_ENUM" ? DP_TYPE_ENUM : null
+    def dpValHex = dpTypeString=="DP_TYPE_VALUE" ? zigbee.convertToHexString(dpValue as int, 8) : dpValue
+
+    log.warn " sending TEST command=${dpCommand} value=${dpValue} ($dpValHex) type=${dpType}"
 
     switch ( getModelGroup() ) {
         case 'AVATTO' :                          
@@ -1131,5 +1133,5 @@ def zTest( dpCommand, dpValue, dpTypeString ) {
             break
     }     
 
-    sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValue) )
+    sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValHex) )
 }    
