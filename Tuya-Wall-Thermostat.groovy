@@ -22,14 +22,14 @@
  *
  *                                  TODO - BRT-100 mode receive check fails !! TODO Force Manual mode works 1-2 times, then stops?
  *                                  TODO: in Initialize do not reset parameters if exist and within limits
- *                                  TODO: process RV Moes BRT-100 Valve position is: 0% (dp=104, fncmd=0) 
+ *                                  TODO: process TRV Moes BRT-100 Valve position is: 0% (dp=104, fncmd=0) 
  *                                  TODO: AVATTO modes auto and heat - remove the current 'Control Mode' command!
  *                                  TODO: handle preset = holiday (Eco mode) for BRT-100
  *
 */
 
 def version() { "1.0.5" }
-def timeStamp() {"2022/01/15 7:10 PM"}
+def timeStamp() {"2022/01/15 7:38 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -48,8 +48,13 @@ metadata {
         capability "ThermostatHeatingSetpoint"
         capability "ThermostatSetpoint"        
         
-
-        //command "test"
+        command "calibration", ["string"]
+        command "zTest", [
+            [name:"dpCommand", type: "STRING", description: "Tuya DP Command", constraints: ["STRING"]],
+            [name:"dpValue",   type: "STRING", description: "Tuya DP value", constraints: ["STRING"]],
+            [name:"dpType",    type: "ENUM",   constraints: ["DP_TYPE_VALUE", "DP_TYPE_BOOL", "DP_TYPE_ENUM"], description: "DP data type"] 
+        ]
+        
         command "initialize"
         command "controlMode", [ [name: "Mode", type: "ENUM", constraints: ["manual", "program"], description: "Select thermostat control mode"] ]        
         command "childLock", [ [name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]        
@@ -1092,7 +1097,39 @@ def childLock( mode ) {
     if (settings?.logEnable) log.trace "${device.displayName} sending child lock mode : ${mode}"
     sendZigbeeCommands( cmds )    
 }
+
+def calibration( offset ) {
+    offset = 0
+    ArrayList<String> cmds = []
+    def dp
+    if (getModelGroup() in ["AVATTO"]) dp = "1B"
+    else if (getModelGroup() in ["TEST"]) dp = "69"
+    else return;
+     // callibration command returns also thermostat mode (heat), operation mode (manual), heating stetpoint and few seconds latrer - the temperature!
+    cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(offset as int, 8))
+    
+    if (settings?.logEnable) log.trace "${device.displayName} sending calibration offset : ${offset}"
     sendZigbeeCommands( cmds )    
 }
 
 
+def zTest( dpCommand, dpValue, dpTypeString ) {
+    ArrayList<String> cmds = []
+    dpType = dpTypeString=="DP_TYPE_VALUE" ? DP_TYPE_VALUE : dpTypeString=="DP_TYPE_BOOL" ? DP_TYPE_BOOL : dpTypeString=="DP_TYPE_ENUM" ? DP_TYPE_ENUM : null
+    log.warn "${device.displayName} sending test command=${dpCommand} value=${dpCommand} type=${dpType}"
+
+    switch ( getModelGroup() ) {
+        case 'AVATTO' :                          
+        case 'MOES' :
+        case 'BEOK' :
+        case 'MODEL3' :
+        case 'TEST' :                            // BRT-100
+        case 'TEST2' :                           // MOES
+        case 'TEST3' :
+        case 'UNKNOWN' :
+        default :
+            break
+    }     
+
+    sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValue) )
+}    
