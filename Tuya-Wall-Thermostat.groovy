@@ -24,11 +24,12 @@
  *                                  TODO: in Initialize do not reset parameters if already exist and are within limits
  *                                  TODO: Check: process TRV Moes BRT-100 Valve position is: 0% (dp=104, fncmd=0) 
  *                                  TODO: handle preset = holiday (Eco mode) for BRT-100
+ *                                  TODO: cool command switches AVATTO thermostat off?
  *
 */
 
 def version() { "1.0.5" }
-def timeStamp() {"2022/01/16 10:30 AM"}
+def timeStamp() {"2022/01/16 11:03 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -211,9 +212,9 @@ def parse(String description) {
                     }
                     else {
                         // DP_IDENTIFIER_THERMOSTAT_MODE_2 0x02 // mode for Moe device used with DP_TYPE_ENUM
-                        log.trace "device current state = ${device.currentState("switch").value}"
+                        if (settings?.logEnable) log.trace "device current state = ${device.currentState("switch").value}"
                         if (device.currentState("switch").value == "off") {
-                            log.warn "ignoring 0x02 command in off mode"
+                            if (settings?.logEnable) log.warn "ignoring 0x02 command in off mode"
                             break    // ignore 0x02 command if thermostat was switched off !!
                         }
                         else {
@@ -221,7 +222,7 @@ def parse(String description) {
                         }
                     }
                 case 0x03 : // 0x03 : Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)
-                    log.warn "Received dp=0x03: fncmd=${fncmd}"
+                    if (settings?.logEnable) log.trace "Received dp=0x03: fncmd=${fncmd}"
                     // TODO - use processTuyaModes3( dp, fncmd )
                     if (descMap?.data.size() <= 7) {
                         def mode
@@ -494,7 +495,7 @@ def processTuyaCalibration( dp, fncmd )
 }
 
 def processBRT100Presets( dp, data ) {
-    log.trace "processBRT100Presets fp-${dp} data=${data}"
+    if (settings?.logEnable) log.trace "processBRT100Presets fp-${dp} data=${data}"
     // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
     // KK TODO - check why the difference for values 0 and 3 ?
 /*
@@ -722,7 +723,7 @@ def sendTuyaThermostatMode( mode ) {
             }
             break
         case "auto" :    // scheduled mode
-            log.trace "sending AUTO mode!"
+            if (settings?.logEnable) log.trace "sending AUTO mode!"
             if (model in ['AVATTO', 'MOES', 'BEOK', 'MODEL3']) {    // TODO - does not switch off manual mode ?
                 if (device.currentState("switch").value == "off") {
                     cmds += switchThermostatOn()
@@ -847,7 +848,7 @@ def setCoolingSetpoint(temperature){
     if (settings?.logEnable) log.debug "${device.displayName} setCoolingSetpoint(${temperature}) called!"
     if (temperature != (temperature as int)) {
         temperature = (temperature + 0.5 ) as int
-        log.trace "corrected temperature: ${temperature}"
+        if (settings?.logEnable) log.trace "corrected temperature: ${temperature}"
     }
     sendEvent(name: "coolingSetpoint", value: temperature, unit: "C", displayed: false)
     // setHeatingSetpoint(temperature)    // KK check!
@@ -947,6 +948,7 @@ def installed() {
     sendEvent(name: "coolingSetpoint", value: 20, unit: "C", displayed: false)
     sendEvent(name: "temperature", value: 20, unit: "C", displayed: false)     
     sendEvent(name: "thermostatSetpoint", value:  20, unit: "C", displayed: false)        // Google Home compatibility
+    sendEvent(name: "switch", value: "on", displayed: true)
 
     state.mode = ""
     state.setpoint = 0
