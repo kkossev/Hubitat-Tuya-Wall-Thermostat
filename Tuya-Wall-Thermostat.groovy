@@ -19,7 +19,7 @@
  * ver. 1.0.4 2022-01-11 kkossev  - reads temp. calibration for AVATTO, patch: temperatures > 50 are divided by 10!; AVATO parameters decoding; added BEOK model
  * ver. 1.0.5 2022-01-15 kkossev  - 2E+1 bug fixed; added rxCounter, txCounter, duplicateCounter; ChildLock control; if boost (emergency) mode was on, then auto() heat() off() commands cancel it;
  *                                  BRT-100 thermostatOperatingState changes on valve report; AVATTO/MOES switching from off mode to auto/heat modes fix; command 'controlMode' is now removed.
- *
+ * ver. 1.0.6 2022-01-16 kkossev  -
  *                                  TODO: BRT-100 mode receive check fails?
  *                                  TODO: in Initialize do not reset parameters if already exist and are within limits
  *                                  TODO: Check: process TRV Moes BRT-100 Valve position is: 0% (dp=104, fncmd=0) 
@@ -29,7 +29,7 @@
 */
 
 def version() { "1.0.5" }
-def timeStamp() {"2022/01/16 11:03 AM"}
+def timeStamp() {"2022/01/16 11:12 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
