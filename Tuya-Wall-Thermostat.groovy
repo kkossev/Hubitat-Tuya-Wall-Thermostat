@@ -20,16 +20,15 @@
  * ver. 1.0.5 2022-01-15 kkossev  - 2E+1 bug fixed; added rxCounter, txCounter, duplicateCounter; ChildLock control; if boost (emergency) mode was on, then auto() heat() off() commands cancel it;
  *                                  BRT-100 thermostatOperatingState changes on valve report; AVATTO/MOES switching from off mode to auto/heat modes fix; command 'controlMode' is now removed.
  *
- *                                  TODO - BRT-100 mode receive check fails !! TODO Force Manual mode works 1-2 times, then stops?
- *                                  TODO: in Initialize do not reset parameters if exist and within limits
- *                                  TODO: process TRV Moes BRT-100 Valve position is: 0% (dp=104, fncmd=0) 
- *                                  TODO: AVATTO modes auto and heat - remove the current 'Control Mode' command!
+ *                                  TODO: BRT-100 mode receive check fails?
+ *                                  TODO: in Initialize do not reset parameters if already exist and are within limits
+ *                                  TODO: Check: process TRV Moes BRT-100 Valve position is: 0% (dp=104, fncmd=0) 
  *                                  TODO: handle preset = holiday (Eco mode) for BRT-100
  *
 */
 
 def version() { "1.0.5" }
-def timeStamp() {"2022/01/16 1:14 AM"}
+def timeStamp() {"2022/01/16 10:30 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -49,16 +48,16 @@ metadata {
         capability "ThermostatSetpoint"
         
         attribute "switch", "enum", ["off", "on"]
-        
+
+        /*
         command "calibration", ["string"]
         command "zTest", [
             [name:"dpCommand", type: "STRING", description: "Tuya DP Command", constraints: ["STRING"]],
             [name:"dpValue",   type: "STRING", description: "Tuya DP value", constraints: ["STRING"]],
             [name:"dpType",    type: "ENUM",   constraints: ["DP_TYPE_VALUE", "DP_TYPE_BOOL", "DP_TYPE_ENUM"], description: "DP data type"] 
         ]
-        
+        */        
         command "initialize"
-        //command "controlMode", [ [name: "Mode", type: "ENUM", constraints: ["manual", "program"], description: "Select thermostat control mode"] ]        
         command "childLock", [ [name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]        
         
         // (AVATTO)
@@ -255,9 +254,7 @@ def parse(String description) {
                 case 0x05 :                                                 // BRT-100 ?
                     if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
                     break
-                // case 0x09 : // BRT-100 ?
-                //case 0x07 :                                                 // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving 
-                case 0x07 :
+                case 0x07 :                                                // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving 
                     if (settings?.txtEnable) log.info "${device.displayName} valve starts moving: 0x${fncmd}"    // BRT-100  00-> opening; 01-> closed!
                     if (fncmd == 00) {
                         sendThermostatOperatingStateEvent("heating")
@@ -271,6 +268,7 @@ def parse(String description) {
                 case 0x08 :                                                 // DP_IDENTIFIER_WINDOW_OPEN2 0x08    // BRT-100
                     if (settings?.txtEnable) log.info "${device.displayName} Open window detection MODE (dp=${dp}) is: ${fncmd}"    //0:function disabled / 1:function enabled
                     break
+                // case 0x09 : // BRT-100 unknown function
                 case 0x0D :                                                 // 0x0D (13) BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D MOES, LIDL
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock (dp=${dp}) is: ${fncmd}"    // 0:function disabled / 1:function enabled
                     break
@@ -409,21 +407,7 @@ def parse(String description) {
     } // if catchAll || readAttr
 }
 
-boolean useTuyaCluster( manufacturer )
-{
-    // https://docs.tuya.com/en/iot/device-development/module/zigbee-module/zigbeetyzs11module?id=K989rik5nkhez
-    //_TZ3000 don't use tuya cluster
-    //_TYZB01 don't use tuya cluster
-    //_TYZB02 don't use tuya cluster
-    //_TZ3400 don't use tuya cluster
 
-    if (manufacturer.startsWith("_TZE200_") || // Tuya cluster visible
-        manufacturer.startsWith("_TYST11_"))   // Tuya cluster invisible
-    {
-        return true;
-    }
-    return false;
-}
 
 def processTuyaHeatSetpointReport( fncmd )
 {                        
