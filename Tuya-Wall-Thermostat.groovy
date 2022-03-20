@@ -25,11 +25,12 @@
  *                                  TODO: Check: process TRV Moes BRT-100 Valve position is: 0% (dp=104, fncmd=0) 
  *                                  TODO: handle preset = holiday (Eco mode) for BRT-100
  *                                  TODO: cool command switches AVATTO thermostat off?
+ * ver. 1.1.0 2022-03-20 kkossev   - BRT-100 dedicated test branch
  *
 */
 
-def version() { "1.0.5" }
-def timeStamp() {"2022/01/16 11:12 AM"}
+def version() { "1.1.0" }
+def timeStamp() {"2022/03/20 9:21 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -348,7 +349,7 @@ def parse(String description) {
                     break
                 case 0x68 :                                                 // 0x68 (104) DP_IDENTIFIER_THERMOSTAT_VALVE_2 0x68 // Valve; also LIDL TempCalibration!
                     if (getModelGroup() in ['AVATTO']) {
-                        if (settings?.txtEnable) log.info "${device.displayName} Dead Zone temp (hysteresis) is: ${fncmd}? (dp=${dp}, fncmd=${fncmd})"
+                        if (settings?.txtEnable) log.info "${device.displayName} Dead Zone temp (hysteresis) is: ${fncmd}C (dp=${dp}, fncmd=${fncmd})"
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
