@@ -282,7 +282,7 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit is: ${fncmd}"
                     break
                 case 0x13 :                                                 // 0x13 (19) Max Temp LIMIT MOES, LIDL
-                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit is: ${fncmd}? (dp=${dp}, fncmd=${fncmd})"    // AVATTO - OK
+                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"    // AVATTO - OK
                     break
                 case 0x14 :                                                 // 0x14 (20) Dead Zone Temp (hysteresis) MOES, LIDL
                     // KK TODO - also Valve state report : on=1 / off=0 ?  DP_IDENTIFIER_THERMOSTAT_VALVE 0x14 // Valve
@@ -298,7 +298,7 @@ def parse(String description) {
                     processTuyaTemperatureReport( fncmd )
                     break
                 case 0x1A :                                                 // AVATTO setpoint lower limit
-                    if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}? (dp=${dp}, fncmd=${fncmd})"
+                    if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     // TODO - update the minTemp preference !
                     break
                 case 0x1B :                                                 // temperature calibration (offset in degree) for Moes (calibration)  // Calibration offset used by AVATO and Moes and Saswell
