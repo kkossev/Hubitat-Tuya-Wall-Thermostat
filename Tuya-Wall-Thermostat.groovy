@@ -20,7 +20,8 @@
  * ver. 1.0.5 2022-01-15 kkossev  - 2E+1 bug fixed; added rxCounter, txCounter, duplicateCounter; ChildLock control; if boost (emergency) mode was on, then auto() heat() off() commands cancel it;
  *                                  BRT-100 thermostatOperatingState changes on valve report; AVATTO/MOES switching from off mode to auto/heat modes fix; command 'controlMode' is now removed.
  * ver. 1.0.6 2022-01-16 kkossev  - debug/trace commands fixes
- * ver. 1.1.0 2022-03-20 kkossev   - (development branch) added childLock attribute and events
+ * ver. 1.1.0 2022-03-21 kkossev  - (development branch) added childLock attribute and events; checkDriverVersion(); removed 'Switch' capability and events
+ *
  *                                  TODO: in Initialize do not reset parameters if already exist and are within limits
  *                                  TODO: cool command switches AVATTO thermostat off?
  *
@@ -29,7 +30,7 @@
 */
 
 def version() { "1.1.0" }
-def timeStamp() {"2022/03/20 10:55 PM"}
+def timeStamp() {"2022/03/21 12:31 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -49,7 +50,7 @@ metadata {
         capability "ThermostatSetpoint"
         
         attribute "childLock", "enum", ["off", "on"]
-        attribute "switch", "enum", ["off", "on"]
+        //attribute "switch", "enum", ["off", "on"]
 
         /*
         command "calibration", ["string"]
@@ -129,6 +130,7 @@ private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
 
 // Parse incoming device messages to generate events
 def parse(String description) {
+    checkDriverVersion()
     if (state.rxCounter != null) state.rxCounter = state.rxCounter + 1
     //if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
@@ -181,29 +183,20 @@ def parse(String description) {
                         processBRT100Presets( dp, fncmd )                       // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
                     }
                     else {
-                        /* version 1.0.4 
+                        /* version 1.0.4 */
                         def mode = (fncmd == 0) ? "off" : "heat"
                         if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: ${mode} (dp=${dp}, fncmd=${fncmd})"
                         sendEvent(name: "thermostatMode", value: mode, displayed: true)
-                        state.lastThermostatMode = mode
-                        if (mode == state.mode) {
-                            state.mode = ""
-                        }
-                        */
-                        def mode = (fncmd == 0) ? "off" : "on"
-                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat switch is: ${mode} (dp=${dp}, fncmd=${fncmd})"
-                        sendEvent(name: "switch", value: mode, displayed: true)
                         if (mode == "off") {
-                            sendEvent(name: "thermostatMode", value: mode, displayed: true)
                             sendEvent(name: "thermostatOperatingState", value: "idle", displayed: true)    // do not store as last state!
                         }
                         else {
                             sendEvent(name: "thermostatOperatingState", value: state.lastThermostatOperatingState, displayed: true)    // do not store as last state!
+                        }                        
+                        state.lastThermostatMode = mode
+                        if (mode == state.mode) {
+                            state.mode = ""
                         }
-                        //state.lastThermostatMode = mode
-                        //if (mode == state.mode) {
-                        //    state.mode = ""
-                       // }
                     }
                     break
                 case 0x02 : // Mode (LIDL)                                  // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT 0x02 // Heatsetpoint
@@ -213,17 +206,19 @@ def parse(String description) {
                     }
                     else {
                         // DP_IDENTIFIER_THERMOSTAT_MODE_2 0x02 // mode for Moe device used with DP_TYPE_ENUM
-                        if (settings?.logEnable) log.trace "device current state = ${device.currentState("switch").value}"
-                        if (device.currentState("switch").value == "off") {
+                        if (settings?.logEnable) log.trace "device current mode = ${device.currentState('thermostatMode').value}"
+                        if (device.currentState("thermostatMode").value == "off") {
                             if (settings?.logEnable) log.warn "ignoring 0x02 command in off mode"
+                            sendEvent(name: "thermostatOperatingState", value: "idle")
                             break    // ignore 0x02 command if thermostat was switched off !!
                         }
                         else {
                             // continue below.. break statement is missing intentionaly!
+                            if (settings?.logEnable) log.trace "...continue in mode ${device.currentState('thermostatMode').value}..."
                         }
                     }
                 case 0x03 : // 0x03 : Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)
-                    if (settings?.logEnable) log.trace "Received dp=0x03: fncmd=${fncmd}"
+                    if (settings?.logEnable) log.trace "processing command dp=${dp} fncmd=${fncmd}"
                     // TODO - use processTuyaModes3( dp, fncmd )
                     if (descMap?.data.size() <= 7) {
                         def mode
@@ -308,9 +303,9 @@ def parse(String description) {
                 case 0x23 :                                                // 0x23(35) LIDL BatteryVoltage
                     if (settings?.txtEnable) log.info "${device.displayName} BatteryVoltage is: ${fncmd}"
                     break
-                case 0x24 :                                                 // 0x24(36) : current (running) operating state (valve)
-                    if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState is: ${fncmd ? "idle" : "heating"} (dp=${dp}, fncmd=${fncmd})"
-                    sendThermostatOperatingStateEvent(fncmd ? "idle" : "heating")
+                case 0x24 :                                                 // 0x24(36) : current (running) operating state (valve) AVATTO
+                    if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? "heating" : "idle" } (dp=${dp}, fncmd=${fncmd})"
+                    sendThermostatOperatingStateEvent(fncmd==0 ? "heating" : "idle")
                     //sendEvent(name: "thermostatOperatingState", value: (fncmd ? "idle" : "heating"), displayed: true)
                     break
                 case 0x1E :                                                 // DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_3 0x1E // For Moes device
@@ -708,7 +703,7 @@ def sendTuyaThermostatMode( mode ) {
             break
         case "heat" :    // manual mode
             if (model in ['AVATTO', 'MOES', 'BEOK', 'MODEL3']) {    // TODO - this command only does not switch off Scheduled (auto) mode !
-                if (device.currentState("switch").value == "off") {
+                if (device.currentState('thermostatMode').value == "off") {
                     cmds += switchThermostatOn()
                 }
                 dp = "02"    // was "01" 
@@ -727,7 +722,7 @@ def sendTuyaThermostatMode( mode ) {
         case "auto" :    // scheduled mode
             if (settings?.logEnable) log.trace "sending AUTO mode!"
             if (model in ['AVATTO', 'MOES', 'BEOK', 'MODEL3']) {    // TODO - does not switch off manual mode ?
-                if (device.currentState("switch").value == "off") {
+                if (device.currentState('thermostatMode').value == "off") {
                     cmds += switchThermostatOn()
                 }
                 dp = "02"    // was "01"
@@ -979,15 +974,30 @@ def refresh() {
     zigbee.readAttribute(0 , 0 )
 }
 
+def driverVersionAndTimeStamp() {version()+' '+timeStamp()}
+
+def checkDriverVersion() {
+    if (state.driverVersion != null && driverVersionAndTimeStamp() == state.driverVersion) {
+    }
+    else {
+        if (txtEnable==true) log.debug "${device.displayName} updating the settings from the current driver version ${state.driverVersion} to the new version ${driverVersionAndTimeStamp()}"
+        initializeVars( fullInit = false ) 
+        state.driverVersion = driverVersionAndTimeStamp()
+    }
+}
+
 def logInitializeRezults() {
     log.info "${device.displayName} manufacturer  = ${device.getDataValue("manufacturer")} ModelGroup = ${getModelGroup()}"
     log.info "${device.displayName} Initialization finished\r                          version=${version()} (Timestamp: ${timeStamp()})"
 }
 
 // called by initialize() button
-void initializeVars() {
-    if (settings?.logEnable) log.debug "${device.displayName} UnitializeVars()..."
-    state.clear()
+void initializeVars( boolean fullInit = true ) {
+    if (settings?.txtEnable) log.info "${device.displayName} InitializeVars()... fullInit = ${fullInit}"
+    if (fullInit == true ) {
+        state.clear()
+        state.driverVersion = driverVersionAndTimeStamp()
+    }
     //
     state.old_dp = ""
     state.old_fncmd = ""
@@ -999,16 +1009,16 @@ void initializeVars() {
     state.rxCounter = 0
     state.txCounter = 0
     state.duplicateCounter = 0
-    state.lastThermostatMode = "unknown"
-    state.lastThermostatOperatingState = "unknown"
     //
-    device.updateSetting("logEnable", false)    
-    device.updateSetting("txtEnable", true)    
-    device.updateSetting("forceManual", false)    
-    device.updateSetting("resendFailed", false)    
-    device.updateSetting("minTemp", 5)    
-    device.updateSetting("maxTemp", 28)    
-
+    if (fullInit == true || state.lastThermostatMode == null) state.lastThermostatMode = "unknown"
+    if (fullInit == true || state.lastThermostatOperatingState == null) state.lastThermostatOperatingState = "unknown"
+    //
+    if (fullInit == true || device.getDataValue("logEnable") == null) device.updateSetting("logEnable", true)
+    if (fullInit == true || device.getDataValue("txtEnable") == null) device.updateSetting("txtEnable", true)
+    if (fullInit == true || device.getDataValue("forceManual") == null) device.updateSetting("forceManual", false)    
+    if (fullInit == true || device.getDataValue("resendFailed") == null) device.updateSetting("resendFailed", false)    
+    if (fullInit == true || device.getDataValue("minTemp") == null) device.updateSetting("minTemp", 5)    
+    if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 28)    
 }
 
 
@@ -1150,7 +1160,7 @@ def calibration( offset ) {
     if (getModelGroup() in ["AVATTO"]) dp = "1B"
     else if (getModelGroup() in ["BRT-100"]) dp = "69"
     else return;
-     // callibration command returns also thermostat mode (heat), operation mode (manual), heating stetpoint and few seconds latrer - the temperature!
+     // callibration command returns also thermostat mode (heat), operation mode (manual), heating stetpoint and few seconds later - the temperature!
     cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(offset as int, 8))
     
     if (settings?.logEnable) log.trace "${device.displayName} sending calibration offset : ${offset}"
