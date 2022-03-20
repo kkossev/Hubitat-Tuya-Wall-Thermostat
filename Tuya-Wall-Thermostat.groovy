@@ -25,12 +25,13 @@
  *                                  TODO: Check: process TRV Moes BRT-100 Valve position is: 0% (dp=104, fncmd=0) 
  *                                  TODO: handle preset = holiday (Eco mode) for BRT-100
  *                                  TODO: cool command switches AVATTO thermostat off?
- * ver. 1.1.0 2022-03-20 kkossev   - BRT-100 dedicated test branch
+ * ver. 1.1.0 2022-03-20 kkossev   - (development branch)
+ * ver. 1.2.0 2022-03-20 kkossev   - BRT-100 dedicated test branch
  *
 */
 
-def version() { "1.1.0" }
-def timeStamp() {"2022/03/20 9:21 PM"}
+def version() { "1.2.0" }
+def timeStamp() {"2022/03/20 9:42 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
