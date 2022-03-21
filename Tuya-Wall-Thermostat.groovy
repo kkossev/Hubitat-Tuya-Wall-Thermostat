@@ -21,13 +21,15 @@
  *                                  BRT-100 thermostatOperatingState changes on valve report; AVATTO/MOES switching from off mode to auto/heat modes fix; command 'controlMode' is now removed.
  * ver. 1.0.6 2022-01-16 kkossev  - debug/trace commands fixes
  * ver. 1.1.0 2022-03-21 kkossev  - (development branch) added childLock attribute and events; checkDriverVersion(); removed 'Switch' capability and events; enabled 'auto' mode for all thermostat types.
+ * 
+ * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch
  *
- * ver. 1.2.0 2022-03-20 kkossev   - BRT-100 dedicated test branch
+ * ver. 1.2.0 2022-03-20 kkossev  - BRT-100 dedicated test branch
  *
 */
 
-def version() { "1.1.0" }
-def timeStamp() {"2022/03/21 7:22 AM"}
+def version() { "1.1.1" }
+def timeStamp() {"2022/03/21 9:17 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -47,7 +49,6 @@ metadata {
         capability "ThermostatSetpoint"
         
         attribute "childLock", "enum", ["off", "on"]
-        //attribute "switch", "enum", ["off", "on"]
 
         /*
         command "calibration", ["string"]
