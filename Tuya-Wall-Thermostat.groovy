@@ -22,14 +22,14 @@
  * ver. 1.0.6 2022-01-16 kkossev  - debug/trace commands fixes
  * ver. 1.1.0 2022-03-21 kkossev  - (development branch) added childLock attribute and events; checkDriverVersion(); removed 'Switch' capability and events; enabled 'auto' mode for all thermostat types.
  * 
- * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch: added tempCalibration; 
+ * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch: added tempCalibration; hysteresis; 
  *
  * ver. 1.2.0 2022-03-20 kkossev  - BRT-100 dedicated test branch
  *
 */
 
 def version() { "1.1.1" }
-def timeStamp() {"2022/03/21 10:18 PM"}
+def timeStamp() {"2022/03/21 10:45 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -82,7 +82,8 @@ metadata {
         input (name: "minTemp", type: "number", title: "Minimim Temperature", description: "<i>The Minimim temperature that can be sent to the device</i>", defaultValue: 5)
         input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature that can be sent to the device</i>", defaultValue: 28)
         input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
-        input (name: "tempCalibration", type: "number", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0, range: "-20.0..60.0")
+        input (name: "tempCalibration", type: "number", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0, range: "-9.0..9.0")
+        input (name: "hysteresis", type: "number", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1, range: "1.0..5.0")
     }
 }
 
@@ -93,7 +94,7 @@ metadata {
     '_TZE200_aoclfnxz'  : 'MOES',        // Tuya Moes BHT series Thermostat BTH-002
     '_TZE200_2ekuz3dz'  : 'BEOK',        // Beok thermostat
     '_TZE200_other'     : 'MODEL3',      // Tuya other models (reserved)
-    '_TZE200_b6wax7g0'  : 'BRT-100',        // BRT-100; ZONNSMART
+    '_TZE200_b6wax7g0'  : 'BRT-100',     // TRV BRT-100; ZONNSMART
     '_TZE200_ckud7u2l'  : 'TEST2',       // KKmoon Tuya; temp /10.0
     '_TZE200_zion52ef'  : 'TEST3',       // TRV MOES => fn = "0001 > off:  dp = "0204"  data = "02" // off; heat:  dp = "0204"  data = "01" // on; auto: n/a !; setHeatingSetpoint(preciseDegrees):   fn = "00" SP = preciseDegrees *10; dp = "1002"
     '_TZE200_c88teujp'  : 'TEST3',       // TRV "SEA-TR", "Saswell", model "SEA801" (to be tested)
@@ -345,6 +346,7 @@ def parse(String description) {
                 case 0x68 :                                                 // 0x68 (104) DP_IDENTIFIER_THERMOSTAT_VALVE_2 0x68 // Valve; also LIDL TempCalibration!
                     if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} Dead Zone temp (hysteresis) is: ${fncmd}C (dp=${dp}, fncmd=${fncmd})"
+                        device.updateSetting("hysteresis", fncmd)
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
@@ -971,6 +973,9 @@ def updated() {
         fncmd = safeToInt( tempCalibration )
         if (settings?.logEnable) log.trace "${device.displayName} changing tempCalibration to= ${fncmd}"
         cmds += sendTuyaCommand("1B", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+        fncmd = safeToInt( hysteresis )
+        if (settings?.logEnable) log.trace "${device.displayName} changing hysteresis to= ${fncmd}"
+        cmds += sendTuyaCommand("68", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
     }
     
     /* unconditional */ log.info "Update finished"
@@ -1028,6 +1033,8 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || device.getDataValue("minTemp") == null) device.updateSetting("minTemp", 5)    
     if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 28)
     if (fullInit == true || device.getDataValue("tempCalibration") == null) device.updateSetting("tempCalibration", 0)
+    if (fullInit == true || device.getDataValue("hysteresis") == null) device.updateSetting("hysteresis", 1)
+    //
     
     
 }
