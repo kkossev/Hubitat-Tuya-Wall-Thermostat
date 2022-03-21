@@ -20,17 +20,14 @@
  * ver. 1.0.5 2022-01-15 kkossev  - 2E+1 bug fixed; added rxCounter, txCounter, duplicateCounter; ChildLock control; if boost (emergency) mode was on, then auto() heat() off() commands cancel it;
  *                                  BRT-100 thermostatOperatingState changes on valve report; AVATTO/MOES switching from off mode to auto/heat modes fix; command 'controlMode' is now removed.
  * ver. 1.0.6 2022-01-16 kkossev  - debug/trace commands fixes
- * ver. 1.1.0 2022-03-21 kkossev  - (development branch) added childLock attribute and events; checkDriverVersion(); removed 'Switch' capability and events
- *
- *                                  TODO: in Initialize do not reset parameters if already exist and are within limits
- *                                  TODO: cool command switches AVATTO thermostat off?
+ * ver. 1.1.0 2022-03-21 kkossev  - (development branch) added childLock attribute and events; checkDriverVersion(); removed 'Switch' capability and events; enabled 'auto' mode for all thermostat types.
  *
  * ver. 1.2.0 2022-03-20 kkossev   - BRT-100 dedicated test branch
  *
 */
 
 def version() { "1.1.0" }
-def timeStamp() {"2022/03/21 12:31 PM"}
+def timeStamp() {"2022/03/21 7:22 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -914,19 +911,17 @@ def sendSupportedThermostatModes() {
     def supportedThermostatModes = "[]"
     switch (getModelGroup()) {
         case 'AVATTO' :
-            supportedThermostatModes = '[off, heat, auto]'
-            break
         case 'MOES' :
         case 'BEOK' :
         case 'MODEL3' :
-            supportedThermostatModes = '[off, heat]'
+            supportedThermostatModes = '[off, heat, auto]'
             break
         case 'BRT-100' :  // BRT-100
             supportedThermostatModes = '[off, heat, auto, emergency heat]'
             //supportedThermostatModes = '[off, heat, auto, emergency heat, eco, test]'
             break
         default :
-            supportedThermostatModes = '[heat, auto]'
+            supportedThermostatModes = '[off, heat, auto]'
             break
     }    
     sendEvent(name: "supportedThermostatModes", value:  supportedThermostatModes, isStateChange: true, displayed: true)
