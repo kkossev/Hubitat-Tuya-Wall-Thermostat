@@ -22,14 +22,14 @@
  * ver. 1.0.6 2022-01-16 kkossev  - debug/trace commands fixes
  * ver. 1.1.0 2022-03-21 kkossev  - (development branch) added childLock attribute and events; checkDriverVersion(); removed 'Switch' capability and events; enabled 'auto' mode for all thermostat types.
  * 
- * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch
+ * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch: added tempCalibration; 
  *
  * ver. 1.2.0 2022-03-20 kkossev  - BRT-100 dedicated test branch
  *
 */
 
 def version() { "1.1.1" }
-def timeStamp() {"2022/03/21 9:17 PM"}
+def timeStamp() {"2022/03/21 10:18 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -50,14 +50,14 @@ metadata {
         
         attribute "childLock", "enum", ["off", "on"]
 
-        /*
+        
         command "calibration", ["string"]
         command "zTest", [
             [name:"dpCommand", type: "STRING", description: "Tuya DP Command", constraints: ["STRING"]],
             [name:"dpValue",   type: "STRING", description: "Tuya DP value", constraints: ["STRING"]],
             [name:"dpType",    type: "ENUM",   constraints: ["DP_TYPE_VALUE", "DP_TYPE_BOOL", "DP_TYPE_ENUM"], description: "DP data type"] 
         ]
-        */        
+        
         command "initialize"
         command "childLock", [ [name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]        
         
@@ -82,6 +82,7 @@ metadata {
         input (name: "minTemp", type: "number", title: "Minimim Temperature", description: "<i>The Minimim temperature that can be sent to the device</i>", defaultValue: 5)
         input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature that can be sent to the device</i>", defaultValue: 28)
         input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
+        input (name: "tempCalibration", type: "number", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0, range: "-20.0..60.0")
     }
 }
 
@@ -295,7 +296,7 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     // TODO - update the minTemp preference !
                     break
-                case 0x1B :                                                 // temperature calibration (offset in degree) for Moes (calibration)  // Calibration offset used by AVATO and Moes and Saswell
+                case 0x1B :                                                 // temperature calibration (offset in degree) for AVATTO, Moes and Saswell (calibration)
                     processTuyaCalibration( dp, fncmd )
                     break
                 case 0x23 :                                                // 0x23(35) LIDL BatteryVoltage
@@ -460,7 +461,6 @@ def processTuyaTemperatureReport( fncmd )
         case 'TEST3' :
             currentTemperatureValue = fncmd / 10.0
             break
-        case 'UNKNOWN' :
         default :
             currentTemperatureValue = fncmd
             break
@@ -479,8 +479,11 @@ def processTuyaCalibration( dp, fncmd )
 {
     def temp = fncmd 
     if (getModelGroup() in ['AVATTO', 'BRT-100'] ){    // (dp=27, fncmd=-1)
+        device.updateSetting("tempCalibration", temp)
+        //log.trace "AVATTO calibration"
     }
     else {    // "_TZE200_aoclfnxz"
+        //log.trace "other calibration"
         if (temp > 2048) {
             temp = temp - 4096;
         }
@@ -888,7 +891,7 @@ def switchThermostatOn() {
 
 def getModelGroup() {
     def manufacturer = device.getDataValue("manufacturer")
-    def modelGroup = 'Unknown'
+    def modelGroup = 'UNKNOWN'
     if (modelGroupPreference == null) {
         device.updateSetting("modelGroupPreference", "Auto detect")
     }
@@ -897,15 +900,16 @@ def getModelGroup() {
             modelGroup = Models[manufacturer]
         }
         else {
-             modelGroup = 'Unknown'
+             modelGroup = 'UNKNOWN'
         }
     }
     else {
          modelGroup = modelGroupPreference 
     }
-    //    log.trace "manufacturer ${manufacturer} group is ${modelGroup}"
+    //if (settings?.logEnable) log.trace "${device.displayName} manufacturer ${manufacturer} group is ${modelGroup}"
     return modelGroup
 }
+
 
 
 def sendSupportedThermostatModes() {
@@ -950,6 +954,7 @@ def installed() {
 }
 
 def updated() {
+    ArrayList<String> cmds = []
     if (modelGroupPreference == null) {
         device.updateSetting("modelGroupPreference", "Auto detect")
     }
@@ -957,12 +962,19 @@ def updated() {
     if (settings?.txtEnable) log.info "Force manual is <b>${forceManual}</b>; Resend failed is <b>${resendFailed}</b>"
     if (settings?.txtEnable) log.info "Debug logging is <b>${logEnable}</b>; Description text logging is <b>${txtEnable}</b>"
     if (logEnable==true) {
-        runIn(1800, logsOff)    // turn off debug logging after 30 minutes
+        runIn(86400, logsOff)    // turn off debug logging after 24 hours
     }
     else {
         unschedule(logsOff)
     }
+    if (getModelGroup() in ['AVATTO']) {
+        fncmd = safeToInt( tempCalibration )
+        if (settings?.logEnable) log.trace "${device.displayName} changing tempCalibration to= ${fncmd}"
+        cmds += sendTuyaCommand("1B", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+    }
+    
     /* unconditional */ log.info "Update finished"
+    sendZigbeeCommands( cmds ) 
 }
 
 def refresh() {
@@ -1014,7 +1026,10 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || device.getDataValue("forceManual") == null) device.updateSetting("forceManual", false)    
     if (fullInit == true || device.getDataValue("resendFailed") == null) device.updateSetting("resendFailed", false)    
     if (fullInit == true || device.getDataValue("minTemp") == null) device.updateSetting("minTemp", 5)    
-    if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 28)    
+    if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 28)
+    if (fullInit == true || device.getDataValue("tempCalibration") == null) device.updateSetting("tempCalibration", 0)
+    
+    
 }
 
 
@@ -1163,6 +1178,13 @@ def calibration( offset ) {
     sendZigbeeCommands( cmds )    
 }
 
+Integer safeToInt(val, Integer defaultVal=0) {
+	return "${val}"?.isInteger() ? "${val}".toInteger() : defaultVal
+}
+
+Double safeToDouble(val, Double defaultVal=0.0) {
+	return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
+}
 
 def zTest( dpCommand, dpValue, dpTypeString ) {
     ArrayList<String> cmds = []
