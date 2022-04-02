@@ -25,12 +25,13 @@
  * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch: added tempCalibration; hysteresis; minTemp and maxTemp;
  *
  * ver. 1.2.0 2022-03-20 kkossev  - BRT-100 dedicated test branch
- * ver. 1.2.1 2022-04-03 kkossev  - BRT-100 
+ * ver. 1.2.1 2022-04-03 kkossev  - BRT-100 basic cluster warning supressed; tempCalibration OK!; 
+ *                                  TODO: Battery capability; 
  *
 */
 
 def version() { "1.2.1" }
-def timeStamp() {"2022/04/03 12:1 AM"}
+def timeStamp() {"2022/04/03 1:46 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -360,7 +361,7 @@ def parse(String description) {
                         processTuyaCalibration( dp, fncmd )
                     }
                     else {
-                         log.warn "${device.displayName} (DP=0x69) ?TRV_MOE auto mode Heatsetpoint? value is: ${fncmd}"
+                         log.warn "${device.displayName} (DP=0x69) ?TRV_MOES auto mode Heatsetpoint? value is: ${fncmd}"
                     }
                     break
                 case 0x6A : // DP_IDENTIFIER_THERMOSTAT_MODE_1 0x6A // mode used with DP_TYPE_ENUM    Energy saving mode (Received value 0:off / 1:on)
@@ -492,18 +493,22 @@ def processTuyaTemperatureReport( fncmd )
 def processTuyaCalibration( dp, fncmd )
 {
     def temp = fncmd 
-    if (getModelGroup() in ['AVATTO', 'BRT-100'] ){    // (dp=27, fncmd=-1)
+    if (getModelGroup() in ['AVATTO'] ){    // (dp=27, fncmd=-1)
         device.updateSetting("tempCalibration", temp)
         //log.trace "AVATTO calibration"
     }
+    else  if (getModelGroup() in ['BRT-100'] && dp == 105) { // 0x69
+        device.updateSetting("tempCalibration", temp)
+        if (settings?.logEnable) log.trace "BRT-100 calibration"
+    }
     else {    // "_TZE200_aoclfnxz"
-        //log.trace "other calibration"
+        if (settings?.logEnable) log.trace "other calibration, getModelGroup() = ${getModelGroup()} dp=${dp} fncmd = ${fncmd}"
         if (temp > 2048) {
             temp = temp - 4096;
         }
         temp = temp / 100        // KK - check !
     }
-    if (settings?.txtEnable) log.info "${device.displayName} temperature calibration (correction) is: ${temp} ? (dp=${dp}, fncmd=${fncmd}) "
+    if (settings?.txtEnable) log.info "${device.displayName} temperature calibration (correction) is: ${temp} (dp=${dp}, fncmd=${fncmd}) "
 }
 
 def processBRT100Presets( dp, data ) {
@@ -995,14 +1000,30 @@ def updated() {
         if (settings?.logEnable) log.trace "${device.displayName} changing maxTemp to= ${fncmd}"
         cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
     }
+    else if (getModelGroup() in ['BRT-100']) {
+        fncmd = safeToInt( tempCalibration )
+        if (settings?.logEnable) log.trace "${device.displayName} changing tempCalibration to= ${fncmd}"
+        cmds += sendTuyaCommand("69", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))  
+    }
     
     /* unconditional */ log.info "Update finished"
     sendZigbeeCommands( cmds ) 
 }
 
 def refresh() {
+    ArrayList<String> cmds = []
     if (settings?.logEnable)  {log.debug "${device.displayName} refresh()..."}
-    zigbee.readAttribute(0 , 0 )
+    def model = getModelGroup()
+    switch (model) {
+        case 'BRT-100' :
+            def dp = "69"                            
+            def fncmd = safeToInt( tempCalibration )
+            cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))   
+            sendZigbeeCommands( cmds ) 
+        default :
+            zigbee.readAttribute(0 , 0 )
+            break
+    }    
 }
 
 def driverVersionAndTimeStamp() {version()+' '+timeStamp()}
