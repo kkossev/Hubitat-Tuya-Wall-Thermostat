@@ -22,14 +22,15 @@
  * ver. 1.0.6 2022-01-16 kkossev  - debug/trace commands fixes
  * ver. 1.1.0 2022-03-21 kkossev  - (development branch) added childLock attribute and events; checkDriverVersion(); removed 'Switch' capability and events; enabled 'auto' mode for all thermostat types.
  * 
- * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch: added tempCalibration; hysteresis; minTemp and maxTemp
+ * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch: added tempCalibration; hysteresis; minTemp and maxTemp;
  *
  * ver. 1.2.0 2022-03-20 kkossev  - BRT-100 dedicated test branch
+ * ver. 1.2.1 2022-04-03 kkossev  - BRT-100 
  *
 */
 
-def version() { "1.1.1" }
-def timeStamp() {"2022/03/21 11:33 PM"}
+def version() { "1.2.1" }
+def timeStamp() {"2022/04/03 12:1 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -173,7 +174,7 @@ def parse(String description) {
                 if ( state.duplicateCounter != null ) state.duplicateCounter = state.duplicateCounter +1
                 return
             }
-            //log.trace " dp_id=${dp_id} dp=${dp} fncmd=${fncmd}"
+            if (settings?.logEnable) log.trace " dp_id=${dp_id} dp=${dp} fncmd=${fncmd}"
             state.old_dp = dp
             state.old_fncmd = fncmd
             // the switch cases below default to dp_id = "01"
@@ -200,6 +201,7 @@ def parse(String description) {
                     }
                     break
                 case 0x02 : // Mode (LIDL)                                  // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT 0x02 // Heatsetpoint
+                    if (settings?.logEnable) log.trace " dp_id=${dp_id} dp=${dp} fncmd=${fncmd}"
                     if (getModelGroup() in ['BRT-100', 'TEST2']) {             // BRT-100 Thermostat heatsetpoint # 0x0202 #
                         processTuyaHeatSetpointReport( fncmd )              // target temp, in degrees (int!)
                         break
@@ -406,7 +408,11 @@ def parse(String description) {
                     if (settings?.logEnable) log.warn "${device.displayName} NOT PROCESSED Tuya cmd: dp=${dp} value=${fncmd} descMap.data = ${descMap?.data}" 
                     break
             } //  (dp) switch
-        } else {
+        }
+        else if (descMap?.cluster == "0000") {
+            if (settings?.logEnable) log.debug "${device.displayName} basic cluster report  : descMap = ${descMap}"
+        } 
+        else {
             if (settings?.logEnable) log.warn "not parsed : "+descMap
         }
     } // if catchAll || readAttr
