@@ -25,13 +25,13 @@
  * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch: added tempCalibration; hysteresis; minTemp and maxTemp;
  *
  * ver. 1.2.0 2022-03-20 kkossev  - BRT-100 dedicated test branch
- * ver. 1.2.1 2022-04-03 kkossev  - BRT-100 basic cluster warning supressed; tempCalibration OK!; 
+ * ver. 1.2.1 2022-04-03 kkossev  - BRT-100 basic cluster warning supressed; tempCalibration OK!; maxTemp & minTemp OK !
  *                                  TODO: Battery capability; 
  *
 */
 
 def version() { "1.2.1" }
-def timeStamp() {"2022/04/03 1:46 AM"}
+def timeStamp() {"2022/04/03 2:06 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -376,19 +376,21 @@ def parse(String description) {
                 case 0x6B :                                                 // DP_IDENTIFIER_TEMPERATURE 0x6B (Sensors)      // BRT-100 !
                     if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6B) Energy saving mode temperature value is: ${fncmd}"    // for BRT-100 # 0x026b # Energy saving mode temperature ( Received value [0, 0, 0, 15] )
                     break
-                case 0x6C :                                                 // DP_IDENTIFIER_HUMIDITY 0x6C  (Sensors)
+                case 0x6C :                                                 
                     if (getModelGroup() in ['BRT-100']) {  
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6C) Max target temp is: ${fncmd}"        // BRT-100 ( Received value [0, 0, 0, 35] )
+                        device.updateSetting("maxTemp", fncmd)
                     }
                     else {
-                        if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6C) humidity value is: ${fncmd}"
+                        if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6C) humidity value is: ${fncmd}"        // DP_IDENTIFIER_HUMIDITY 0x6C  (Sensors)
                     }
                     break
-                case 0x6D :                                                 // Valve position in % (also // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_4 0x6D // Not finished)
+                case 0x6D :                                                 
                     if (getModelGroup() in ['BRT-100']) {                      // 0x026d # Min target temp (Received value [0, 0, 0, 5])
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) Min target temp is: ${fncmd}"
+                        device.updateSetting("minTemp", fncmd)
                     }
-                    else {
+                    else {                                                    // Valve position in % (also // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_4 0x6D // Not finished)
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) valve position is: ${fncmd} (dp=${dp}, fncmd=${fncmd})"
                     }
                     // KK TODO if (valve > 3) => On !
@@ -1003,7 +1005,13 @@ def updated() {
     else if (getModelGroup() in ['BRT-100']) {
         fncmd = safeToInt( tempCalibration )
         if (settings?.logEnable) log.trace "${device.displayName} changing tempCalibration to= ${fncmd}"
-        cmds += sendTuyaCommand("69", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))  
+        cmds += sendTuyaCommand("69", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+        fncmd = safeToInt( minTemp )
+        if (settings?.logEnable) log.trace "${device.displayName} changing minTemp to= ${fncmd}"
+        cmds += sendTuyaCommand("6D", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+        fncmd = safeToInt( maxTemp )
+        if (settings?.logEnable) log.trace "${device.displayName} changing maxTemp to= ${fncmd}"
+        cmds += sendTuyaCommand("6C", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
     }
     
     /* unconditional */ log.info "Update finished"
