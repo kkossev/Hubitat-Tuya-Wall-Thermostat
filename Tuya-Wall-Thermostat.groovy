@@ -34,7 +34,7 @@
 */
 
 def version() { "1.0.8" }
-def timeStamp() {"2022/04/03 9:49 AM"}
+def timeStamp() {"2022/04/03 10:14 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -58,12 +58,13 @@ metadata {
 
         
         command "calibration", ["string"]
+        /*
         command "zTest", [
             [name:"dpCommand", type: "STRING", description: "Tuya DP Command", constraints: ["STRING"]],
             [name:"dpValue",   type: "STRING", description: "Tuya DP value", constraints: ["STRING"]],
             [name:"dpType",    type: "ENUM",   constraints: ["DP_TYPE_VALUE", "DP_TYPE_BOOL", "DP_TYPE_ENUM"], description: "DP data type"] 
         ]
-        
+        */
         command "initialize"
         command "childLock", [ [name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]        
         
