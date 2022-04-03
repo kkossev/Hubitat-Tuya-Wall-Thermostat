@@ -25,13 +25,13 @@
  * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch: added tempCalibration; hysteresis; minTemp and maxTemp;
  *
  * ver. 1.2.0 2022-03-20 kkossev  - BRT-100 dedicated test branch
- * ver. 1.2.1 2022-04-03 kkossev  - BRT-100 basic cluster warning supressed; tempCalibration OK!; maxTemp & minTemp OK !
- *                                  TODO: Battery capability; 
+ * ver. 1.2.1 2022-04-03 kkossev  - BRT-100 basic cluster warning supressed; tempCalibration OK!; maxTemp & minTemp OK!; added Battery capability
+ *                                  TODO: hysteresis;
  *
 */
 
 def version() { "1.2.1" }
-def timeStamp() {"2022/04/03 2:06 AM"}
+def timeStamp() {"2022/04/03 8:53 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -49,6 +49,7 @@ metadata {
         //capability "ThermostatMode"   
         capability "ThermostatHeatingSetpoint"
         capability "ThermostatSetpoint"
+        capability "Battery"                    // BRT-100
         
         attribute "childLock", "enum", ["off", "on"]
 
@@ -85,7 +86,7 @@ metadata {
         input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature that can be sent to the device</i>", defaultValue: 40, range: "28.0..90.0")
         input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
         input (name: "tempCalibration", type: "number", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0, range: "-9.0..9.0")
-        input (name: "hysteresis", type: "number", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1, range: "1.0..5.0")
+        input (name: "hysteresis", type: "number", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1, range: "1.0..5.0")        // not available for BRT-100 !
     }
 }
 
@@ -293,7 +294,8 @@ def parse(String description) {
                 case 0x0E :                                                 // 0x0E : BRT-100 Battery # 0x020e # battery percentage (updated every 4 hours )
                 case 0x15 :
                     def battery = fncmd >100 ? 100 : fncmd
-                    if (settings?.txtEnable) log.info "${device.displayName} battery is: ${fncmd} %"
+                    if (settings?.txtEnable) log.info "${device.displayName} battery is: ${fncmd} % (dp=${dp})"
+                    getBatteryPercentageResult(fncmd*2)                
                     break                
                 case 0x18 :                                                 // 0x18(24) : Current (local) temperature
                     if (settings?.logEnable) log.trace "processTuyaTemperatureReport dp_id=${dp_id} <b>dp=${dp}</b> :"
@@ -1240,6 +1242,25 @@ Double safeToDouble(val, Double defaultVal=0.0) {
 	return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
 }
 
+def getBatteryPercentageResult(rawValue) {
+    //if (settings?.logEnable) log.debug "${device.displayName} Battery Percentage rawValue = ${rawValue} -> ${rawValue / 2}%"
+    def result = [:]
+
+    if (0 <= rawValue && rawValue <= 200) {
+        result.name = 'battery'
+        result.translatable = true
+        result.value = Math.round(rawValue / 2)
+        result.descriptionText = "${device.displayName} battery is ${result.value}%"
+        result.isStateChange = true
+        result.unit  = '%'
+        sendEvent(result)
+        if (settings?.txtEnable) log.info "${result.descriptionText}"
+    }
+    else {
+        if (settings?.logEnable) log.warn "${device.displayName} ignoring BatteryPercentageResult(${rawValue})"
+    }
+}
+
 def zTest( dpCommand, dpValue, dpTypeString ) {
     ArrayList<String> cmds = []
     def dpType   = dpTypeString=="DP_TYPE_VALUE" ? DP_TYPE_VALUE : dpTypeString=="DP_TYPE_BOOL" ? DP_TYPE_BOOL : dpTypeString=="DP_TYPE_ENUM" ? DP_TYPE_ENUM : null
@@ -1262,3 +1283,8 @@ def zTest( dpCommand, dpValue, dpTypeString ) {
 
     sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValHex) )
 }    
+/*
+    BRT-100 Zigbee network re-pair procedure: After the actuator has completed self-test, long press [X] access to interface, short press '+' to choose WiFi icon,
+        short press [X] to confirm this option, long press [X]. WiFi icon will start flashing when in pairing mode.
+
+*/
