@@ -1,6 +1,8 @@
 /**
  *  Tuya Wall Thermostat driver for Hubitat Elevation
  *
+ *  https://community.hubitat.com/t/beta-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050 
+ *
  *	Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *	in compliance with the License. You may obtain a copy of the License at:
  *
@@ -26,12 +28,12 @@
  *
  * ver. 1.2.0 2022-03-20 kkossev  - BRT-100 dedicated test branch
  * ver. 1.2.1 2022-04-03 kkossev  - BRT-100 basic cluster warning supressed; tempCalibration OK!; maxTemp & minTemp OK!; added Battery capability
- *                                  TODO: hysteresis;
+ *                                  TODO: 
  *
 */
 
 def version() { "1.2.1" }
-def timeStamp() {"2022/04/03 8:53 AM"}
+def timeStamp() {"2022/04/03 9:44 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -1025,11 +1027,13 @@ def refresh() {
     if (settings?.logEnable)  {log.debug "${device.displayName} refresh()..."}
     def model = getModelGroup()
     switch (model) {
+        /*
         case 'BRT-100' :
             def dp = "69"                            
             def fncmd = safeToInt( tempCalibration )
             cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))   
             sendZigbeeCommands( cmds ) 
+        */
         default :
             zigbee.readAttribute(0 , 0 )
             break
