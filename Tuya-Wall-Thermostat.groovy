@@ -28,13 +28,14 @@
  * ver. 1.1.1 2022-03-21 kkossev  - AVATTO dedicated test branch: added tempCalibration; hysteresis; minTemp and maxTemp;
  *
  * ver. 1.2.0 2022-03-20 kkossev  - BRT-100 dedicated test branch
- * ver. 1.2.1 2022-04-03 kkossev  - BRT-100 basic cluster warning supressed; tempCalibration OK!; maxTemp & minTemp OK!; added Battery capability
- *                                  TODO: 
+ * ver. 1.2.1 2022-04-04 kkossev  - BRT-100 basic cluster warning supressed; tempCalibration OK!; maxTemp & minTemp OK!; added Battery capability; 'Changed from device Web UI' desctiption in off() and heat() eventsl
+ *
+ *                                  TODO: remoce caalibration command! (now is as Preference parameter)
  *
 */
 
-def version() { "1.0.8" }
-def timeStamp() {"2022/04/03 10:14 AM"}
+def version() { "1.2.1" }
+def timeStamp() {"2022/04/04 3:20 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -788,7 +789,6 @@ def sendTuyaThermostatMode( mode ) {
     }
     cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, fn)
     sendZigbeeCommands( cmds )
-    //return sendTuyaCommand(dp, DP_TYPE_BOOL, fn)
 }
 
 //  sends TuyaCommand and checks after 4 seconds
