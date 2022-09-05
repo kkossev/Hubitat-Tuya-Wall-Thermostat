@@ -32,7 +32,7 @@
 */
 
 def version() { "1.2.2" }
-def timeStamp() {"2022/09/04 9:44 AM"}
+def timeStamp() {"2022/09/04 2:08 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -188,7 +188,6 @@ def parse(String description) {
             if (settings?.logEnable) log.trace " dp_id=${dp_id} dp=${dp} fncmd=${fncmd}"
             state.old_dp = dp
             state.old_fncmd = fncmd
-            def debugText = ""
             // the switch cases below default to dp_id = "01"
             switch (dp) {
                 case 0x01 :  // 0x01: Heat / Off        DP_IDENTIFIER_THERMOSTAT_MODE_4 0x01 // mode for Moes device used with DP_TYPE_ENUM
@@ -198,8 +197,8 @@ def parse(String description) {
                     else {    // AVATTO switch (boolean)
                         /* version 1.0.4 */
                         def mode = (fncmd == 0) ? "off" : "heat"
-                        if (settings?.logEnable) debugText = '(dp=${dp}, fncmd=${fncmd})'
-                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: ${mode} ${debugText}"
+                        if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode is: ${mode}"}
+                        else if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode is: ${mode} (dp=${dp}, fncmd=${fncmd})"}
                         sendEvent(name: "thermostatMode", value: mode, displayed: true)
                         if (mode == "off") {
                             sendEvent(name: "thermostatOperatingState", value: "idle", displayed: true)    // do not store as last state!
@@ -250,8 +249,8 @@ def parse(String description) {
                         } else {
                             mode = "heat"    // manual
                         }
-                        if (settings?.logEnable) debugText = '(dp=${dp}, fncmd=${fncmd})'
-                        if (settings?.txtEnable) log.info "${device.displayName} Thermostat mode is: $mode ${debugText}"
+                        if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode is: ${mode}"}
+                        else if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode is: $mode (dp=${dp}, fncmd=${fncmd})"}
                         sendEvent(name: "thermostatMode", value: mode, displayed: true)    // mode was confirmed from the Preset info data...
                         state.lastThermostatMode = mode
                     } 
@@ -344,8 +343,8 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} BatteryVoltage is: ${fncmd}"
                     break
                 case 0x24 :    // (36) : current (running) operating state (valve) AVATTO (enum) 'open','close'
-                    if (settings?.logEnable) debugText = '(dp=${dp}, fncmd=${fncmd})'
-                    if (settings?.txtEnable) log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? "heating" : "idle" } ${debugText}"
+                    if (settings?.txtEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? 'heating' : 'idle'}"}
+                    else if (settings?.logEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? 'heating' : 'idle'} (dp=${dp}, fncmd=${fncmd})"}
                     sendThermostatOperatingStateEvent(fncmd==0 ? "heating" : "idle")
                     break
                 case  0x27 :    // (39) AVATTO - RESET
@@ -955,6 +954,7 @@ def cool() { setThermostatMode("off") }
 def fanAuto() { setThermostatFanMode("auto") }
 def fanCirculate() { setThermostatFanMode("circulate") }
 def fanOn() { setThermostatFanMode("on") }
+def setSchedule(schedule) { if (settings?.logEnable) log.debug "${device.displayName} setSchedule (${schedule}) called!"} 
 
 def setManualMode() {
     if (settings?.logEnable) log.debug "${device.displayName} setManualMode()"
@@ -1012,23 +1012,25 @@ def sendSupportedThermostatModes() {
             supportedThermostatModes = '[off, heat, auto]'
             break
     }    
-    sendEvent(name: "supportedThermostatModes", value:  supportedThermostatModes, isStateChange: true, displayed: true)
+    sendEvent(name: "supportedThermostatModes", value:  supportedThermostatModes, isStateChange: true)
 }
 
 //  called from initialize()
 def installed() {
     if (settings?.txtEnable) log.info "installed()"
+    
+    sendEvent(name: "supportedThermostatFanModes", value: ["auto"], isStateChange: true)    
     sendSupportedThermostatModes()
-    sendEvent(name: "supportedThermostatFanModes", value: ["auto"])    
-    sendEvent(name: "thermostatMode", value: "heat", displayed: false)
+    sendEvent(name: "thermostatMode", value: "heat", isStateChange: true)
+    sendEvent(name: "thermostatFanMode", value: "auto", isStateChange: true)
     state.lastThermostatMode = "heat"
     sendThermostatOperatingStateEvent( "idle" )
-    //sendEvent(name: "thermostatOperatingState", value: "idle", displayed: false)
-    sendEvent(name: "heatingSetpoint", value: 20, unit: "\u00B0"+"C", displayed: false)
-    sendEvent(name: "coolingSetpoint", value: 20, unit: "\u00B0"+"C", displayed: false)
-    sendEvent(name: "temperature", value: 20, unit: "\u00B0"+"C", displayed: false)     
-    sendEvent(name: "thermostatSetpoint", value:  20, unit: "\u00B0"+"C", displayed: false)        // Google Home compatibility
-    //sendEvent(name: "switch", value: "on", displayed: true)
+    sendEvent(name: "thermostatOperatingState", value: "idle", isStateChange: true)
+    sendEvent(name: "thermostatSetpoint", value:  20, unit: "\u00B0"+"C", isStateChange: true)        // Google Home compatibility
+    sendEvent(name: "heatingSetpoint", value: 20, unit: "\u00B0"+"C", isStateChange: true)
+    sendEvent(name: "coolingSetpoint", value: 30, unit: "\u00B0"+"C", isStateChange: true)
+    sendEvent(name: "temperature", value: 22, unit: "\u00B0"+"C", isStateChange: true)    
+    updateDataValue("lastRunningMode", "heat")	
 
     state.mode = ""
     state.setpoint = 0
@@ -1077,7 +1079,7 @@ def updated() {
         cmds += sendTuyaCommand("6C", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
     }
     
-    /* unconditional */ log.info "Update finished"
+    /* unconditional */ log.info "${device.displayName} Update finished"
     sendZigbeeCommands( cmds ) 
 }
 
@@ -1163,7 +1165,6 @@ def configure() {
 
 def initialize() {
     if (true) "${device.displayName} Initialize()..."
-    // sendEvent(name: "supportedThermostatModes", value: ["off", "cool"])
     unschedule()
     initializeVars()
     setDeviceLimits()
