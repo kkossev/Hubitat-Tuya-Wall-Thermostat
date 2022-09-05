@@ -1,0 +1,16 @@
+{
+  "packageName": "Tuya Wall Thermostat",
+  "author": "Krassimir Kossev",
+  "version": "1.0.0",
+  "minimumHEVersion": "2.2.7",
+  "dateReleased": "2022-09-05",
+  "drivers": [
+    {
+      "id": "35d93480-c815-490d-b772-06ea2023b9b9",
+      "name": "Tuya Wall Thermostat",
+      "namespace": "kkossev",
+      "location": "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/main/Tuya-Wall-Thermostat.groovy",
+      "required": true
+    }
+  ]
+}
