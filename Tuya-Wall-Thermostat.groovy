@@ -27,7 +27,8 @@
  * ver. 1.2.1 2022-04-05 kkossev  - BRT-100 basic cluster warning supressed; tempCalibration, maxTemp, minTemp fixes; added Battery capability; 'Changed from device Web UI' desctiption in off() and heat() events.
  * ver. 1.2.2 2022-09-04 kkossev  - AVATTO additional DP logging; removed Calibration command (now is as Preference parameter); replaced Initialize capability w/ custom command; degrees symbol in temp. unit;
  *                                  Refresh command wakes up the display';  Google Home compatibility
- * ver. 1.2.3 2022-09-05 kkossev  - (dev branch) added FactoryReset command; added AVATTO programMode preference; 
+ * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command; added AVATTO programMode preference; 
+ *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
@@ -41,7 +42,7 @@ import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubAction
 import hubitat.device.Protocol
 
-@Field static final Boolean debug = true
+@Field static final Boolean debug = false
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/development/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
@@ -87,7 +88,7 @@ metadata {
         if (logEnable == true || logEnable == false) { 
             input (name: "logEnable", type: "bool", title: "<b>Debug logging</b>", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
             input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
-            input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes intto schedule mode, then it automatically reverts back to manual mode</i>", defaultValue: false)
+            input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes into schedule mode, then it automatically reverts back to manual mode</i>", defaultValue: false)
             input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
             input (name: "minTemp", type: "number", title: "Minimim Temperature", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "5.0..20.0")
             input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 40, range: "28.0..90.0")
