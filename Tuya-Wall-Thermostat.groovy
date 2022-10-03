@@ -29,14 +29,14 @@
  *                                  Refresh command wakes up the display';  Google Home compatibility
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
- * ver. 1.2.5 2022-10-03 kkossev  - (dev. branch) - added all known BEOK commands decoding;
+ * ver. 1.2.5 2022-10-03 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
 def version() { "1.2.5" }
-def timeStamp() {"2022/10/03 4:49 PM"}
+def timeStamp() {"2022/10/03 5:59 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -99,6 +99,9 @@ metadata {
             input (name: "hysteresis", type: "number", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1, range: "1.0..5.0")        // not available for BRT-100 !
             if (getModelGroup() in ['AVATTO'])  {
                 input (name: "programMode", type: "enum", title: "Program Mode (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
+            }
+            if (getModelGroup() in ['BEOK'])  {
+                input (name: "sound", type: "bool", title: "<b>Disable/Enable sound</b>", description: "<i>Disable/Enable sound</i>", defaultValue: true)
             }
         }
     }
@@ -279,7 +282,8 @@ def parse(String description) {
                     break
                 case 0x07 :    // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving     // sound for X5H thermostat
                     if ( getModelGroup() in ['BEOK'] ) {
-                        if (settings?.txtEnable) log.info "${device.displayName} sound is: 0x${fncmd}"
+                        if (settings?.txtEnable) log.info "${device.displayName} sound is: ${fncmd==0?'off':'on'}"
+                        device.updateSetting( "sound",  [value:(fncmd==0?false:true), type:"bool"] )
                         // TODO - update a sound preference parameter for BEOK !
                     }
                     else {
@@ -1114,6 +1118,27 @@ def updated() {
             cmds += sendTuyaCommand("68", DP_TYPE_ENUM, zigbee.convertToHexString(value as int, 2))
         }
     }
+    if (getModelGroup() in ['BEOK']) {
+        fncmd = settings?.sound == false ? 0 : 1
+        if (settings?.logEnable) log.trace "${device.displayName} setting sound to ${fncmd}"
+        cmds += sendTuyaCommand("07", DP_TYPE_BOOL, zigbee.convertToHexString(fncmd as int, 2))
+        //
+        
+        /*
+        fncmd = safeToInt( tempCalibration )
+        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to= ${fncmd}"
+        cmds += sendTuyaCommand("1B", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+        fncmd = safeToInt( hysteresis )
+        if (settings?.logEnable) log.trace "${device.displayName} setting hysteresis to= ${fncmd}"
+        cmds += sendTuyaCommand("6A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+        fncmd = safeToInt( minTemp )
+        if (settings?.logEnable) log.trace "${device.displayName} setting minTemp to= ${fncmd}"
+        cmds += sendTuyaCommand("1A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+        fncmd = safeToInt( maxTemp )
+        if (settings?.logEnable) log.trace "${device.displayName} setting maxTemp to= ${fncmd}"
+        cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+*/
+    }
     else if (getModelGroup() in ['BRT-100']) {
         fncmd = safeToInt( tempCalibration )
         if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to= ${fncmd}"
@@ -1230,6 +1255,8 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 28)
     if (fullInit == true || device.getDataValue("tempCalibration") == null) device.updateSetting("tempCalibration", 0)
     if (fullInit == true || device.getDataValue("hysteresis") == null) device.updateSetting("hysteresis", 1)
+    if (fullInit == true || device.getDataValue("sound") == null) device.updateSetting("sound", false)    
+    
     //
     
     
