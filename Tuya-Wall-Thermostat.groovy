@@ -29,13 +29,14 @@
  *                                  Refresh command wakes up the display';  Google Home compatibility
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
+ * ver. 1.2.5 2022-10-03 kkossev  - (dev. branch) - added all known BEOK commands decoding;
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
-def version() { "1.2.4" }
-def timeStamp() {"2022/09/28 10:11 PM"}
+def version() { "1.2.5" }
+def timeStamp() {"2022/10/03 4:49 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -202,7 +203,7 @@ def parse(String description) {
                     if (getModelGroup() in ['BRT-100', 'TEST2']) {
                         processBRT100Presets( dp, fncmd )                       // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
                     }
-                    else {    // AVATTO switch (boolean) // state
+                    else {    // AVATTO switch (boolean) // state; BEOK x5hState
                         /* version 1.0.4 */
                         //def mode = (fncmd == 0) ? "off" : "heat"
                         def mode = (fncmd == 0) ? "off" : state.lastThermostatMode    // version 1.2.3
@@ -228,7 +229,7 @@ def parse(String description) {
                         processTuyaHeatSetpointReport( fncmd )              // target temp, in degrees (int!)
                         break
                     }
-                    else {    // AVATTO : mode (enum) 'manual', 'program'
+                    else {    // AVATTO : mode (enum) 'manual', 'program'; BEOK x5hMode
                         // DP_IDENTIFIER_THERMOSTAT_MODE_2 0x02 // mode for Moe device used with DP_TYPE_ENUM
                         if (settings?.logEnable) log.trace "device current mode = ${device.currentState('thermostatMode').value}"
                         if (device.currentState("thermostatMode").value == "off") {
@@ -241,7 +242,7 @@ def parse(String description) {
                             if (settings?.logEnable) log.trace "...continue in mode ${device.currentState('thermostatMode').value}..."
                         }
                     }
-                case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // working status
+                case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // BEOK x5hWorkingStatus
                     if (settings?.logEnable) log.trace "processing command dp=${dp} fncmd=${fncmd}"
                     // TODO - use processTuyaModes3( dp, fncmd )
                     if (descMap?.data.size() <= 7) {
@@ -277,25 +278,32 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
                     break
                 case 0x07 :    // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving     // sound for X5H thermostat
-                    if (settings?.txtEnable) log.info "${device.displayName} valve starts moving: 0x${fncmd}"    // BRT-100  00-> opening; 01-> closed!
-                    if (fncmd == 00) {
-                        sendThermostatOperatingStateEvent("heating")
-                        //sendEvent(name: "thermostatOperatingState", value: "heating", displayed: true)
+                    if ( getModelGroup() in ['BEOK'] ) {
+                        if (settings?.txtEnable) log.info "${device.displayName} sound is: 0x${fncmd}"
+                        // TODO - update a sound preference parameter for BEOK !
                     }
-                    else {    // fncmd == 01
-                        sendThermostatOperatingStateEvent("idle")
-                        //sendEvent(name: "thermostatOperatingState", value: "idle", displayed: true)
+                    else {
+                        if (settings?.txtEnable) log.info "${device.displayName} valve starts moving: 0x${fncmd}"    // BRT-100  00-> opening; 01-> closed!
+                        if (fncmd == 00) {
+                            sendThermostatOperatingStateEvent("heating")
+                        }
+                        else {    // fncmd == 01
+                            sendThermostatOperatingStateEvent("idle")
+                        }
                     }
                     break
                 case 0x08 :    // DP_IDENTIFIER_WINDOW_OPEN2 0x08    // BRT-100
                     if (settings?.txtEnable) log.info "${device.displayName} Open window detection MODE (dp=${dp}) is: ${fncmd}"    //0:function disabled / 1:function enabled
                     break
                 // case 0x09 : // BRT-100 unknown function
-                case 0x0D :    // 0x0D (13) BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D MOES, LIDL
+                case 0x0A :    // (10) BEOK - x5hFrostProtection
+                    if (settings?.txtEnable) log.info "${device.displayName} frost protection is: 0x${fncmd}"
+                    // TODO - update a frost protection parameter for BEOK !
+                    break;
+                case 0x0D :    // (13) BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D MOES, LIDL
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock (dp=${dp}) is: ${fncmd}"    // 0:function disabled / 1:function enabled
                     break
-                case 0x10 :    // (16): Heating setpoint AVATTO
-                    // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_3 0x10         // Heatsetpoint for TRV_MOE mode heat // BRT-100 Rx only?
+                case 0x10 :    // (16): Heating setpoint AVATTO; x5hSetTemp BEOK
                     processTuyaHeatSetpointReport( fncmd )
                     break
                 case 0x11 :    // (17) AVATTO
@@ -310,8 +318,8 @@ def parse(String description) {
                     }
                     break
                 case 0x13 :    // (19) Max Temp LIMIT AVATTO MOES, LIDL
-                    if (getModelGroup() in ['AVATTO']) {
-                        device.updateSetting("maxTemp", fncmd)    // aka 'temperature ceiling'
+                    if (getModelGroup() in ['AVATTO', 'BEOK']) {
+                        device.updateSetting("maxTemp", fncmd)    // aka 'temperature ceiling'; x5hSetTempCeiling BEOK ( default 60 )
                     }
                     if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     break
@@ -332,7 +340,7 @@ def parse(String description) {
                 case 0x17 :    // (23) temperature scale for AVATTO
                     if (settings?.txtEnable) log.info "${device.displayName} temperature scale is: ${fncmd==0?'C':'F'} (${fncmd})"
                     break
-                case 0x18 :    // (24) : Current (local) temperature
+                case 0x18 :    // (24) : Current (local) temperature; x5hCurrentTemp BEOK
                     if (settings?.logEnable) log.trace "processTuyaTemperatureReport dp_id=${dp_id} <b>dp=${dp}</b> :"
                     processTuyaTemperatureReport( fncmd )
                     break
@@ -343,11 +351,17 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     // TODO - update the minTemp preference !
                     break
-                case 0x1B :    // (27) temperature calibration/correction (offset in degrees) for AVATTO, Moes and Saswell
+                case 0x1B :    // (27) temperature calibration/correction (offset in degrees) for AVATTO, Moes and Saswell; x5hTempCorrection BEOK
                     processTuyaCalibration( dp, fncmd )
                     break
                 case 0x1D :    // (29) AVATTO
                     if (settings?.txtEnable) log.info "${device.displayName} current temperature F is: ${fncmd}"
+                    break
+                case 0x1E :    // (30) x5hWeeklyProcedure BEOK
+                    if (settings?.txtEnable) log.info "${device.displayName} weekly procedure is: ${fncmd}"
+                    break
+                case 0x1F :    // (31) x5hWorkingDaySetting BEOK
+                    if (settings?.txtEnable) log.info "${device.displayName} working day setting is: ${fncmd}"
                     break
                 case 0x23 :    // (35) LIDL BatteryVoltage
                     if (settings?.txtEnable) log.info "${device.displayName} BatteryVoltage is: ${fncmd}"
@@ -357,41 +371,54 @@ def parse(String description) {
                     else if (settings?.logEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? 'heating' : 'idle'} (dp=${dp}, fncmd=${fncmd})"}
                     sendThermostatOperatingStateEvent(fncmd==0 ? "heating" : "idle")
                     break
-                case  0x27 :    // (39) AVATTO - RESET
+                case  0x27 :    // (39) AVATTO - RESET; x5hFactoryReset BEOK
                     if (settings?.txtEnable) log.info "${device.displayName} thermostat reset (${fncmd})"
                     break
                 case 0x1E :    // (30) DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_3 0x1E // For Moes device
-                case 0x28 :    // (40) Child Lock    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_2 0x28 ( AVATTO (boolean) )
+                case 0x28 :    // (40) Child Lock    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_2 0x28 ( AVATTO (boolean) ); x5hChildLock BEOK (TODO - check if boolean or enum for BEOK?)
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock is: ${fncmd} (dp=${dp})"
                     sendEvent(name: "childLock", value: (fncmd == 0) ? "off" : "on" )
                     break
-                case 0x2B :    // (43) AVATTO Sensor 0-In 1-Out 2-Both    // KK TODO
+                case 0x2B :    // (43) AVATTO Sensor 0-In 1-Out 2-Both; x5hSensorSelection BEOK
                     if (settings?.txtEnable) log.info "${device.displayName} Sensor is: ${fncmd==0?'In':fncmd==1?'Out':fncmd==2?'In and Out':'UNKNOWN'} (${fncmd})"
+                    // TODO - make it a preference parameter !
                     break
                 case 0x2C :                                                 // temperature calibration (offset in degree)   //DP_IDENTIFIER_THERMOSTAT_CALIBRATION_2 0x2C // Calibration offset used by others
                     processTuyaCalibration( dp, fncmd )
                     break
-                case 0x2D :    // (45) LIDL and AVATTO ErrorStatus (bitmap) e1, e2, e3 // er1: Built-in sensor disconnected or fault with it; Er1: Built-in sensor disconnected or fault with it.
-                    if (settings?.txtEnable) log.info "${device.displayName} error code : ${fncmd}"
+                case 0x2D :    // (45) LIDL and AVATTO ErrorStatus (bitmap) e1, e2, e3 // er1: Built-in sensor disconnected or fault with it; Er1: Built-in sensor disconnected or fault with it.; x5hFaultAlarm BEOK
+                    if (settings?.txtEnable) log.info "${device.displayName} fault alarm error code is: ${fncmd}"
                     break
                 // case 0x62 : // (98) DP_IDENTIFIER_REPORTING_TIME 0x62 (Sensors)
-                case 0x65 :    // (101) AVATTO PID ; also LIDL ComfortTemp
+                case 0x65 :    // (101) AVATTO PID ; also LIDL ComfortTemp; x5hTempDiff BEOK
                     if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"    // Model#1 only !!
                     }
+                    else if (getModelGroup() in ['BEOK']) {
+                        if (settings?.txtEnable) log.info "${device.displayName} temperature difference is: ${fncmd}"
+                        // TODO - update the preference parameter !!
+                    }
                     else {
-                        if (settings?.logEnable) log.info "${device.displayName} Thermostat SCHEDULE_1 data received (not processed)..."
+                        if (settings?.logEnable) log.info "${device.displayName} Thermostat SCHEDULE_1 (0x65) data received (not processed)...  ${fncmd}"
                     }
                     break
-                case 0x66 :     // (102) min temperature limit; also LIDL EcoTemp
-                    if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
+                case 0x66 :     // (102) min temperature limit; also LIDL EcoTemp; x5hProtectionTempLimit BEOK (default 35)
+                    if (getModelGroup() in ['BEOK']) {
+                        if (settings?.txtEnable) log.info "${device.displayName} protection temperature limit is: ${fncmd}"
+                    }
+                    else {
+                        if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
+                    }
                     break
-                case 0x67 :    // (103) max temperature limit; also LIDL AwaySetting
+                case 0x67 :    // (103) max temperature limit; also LIDL AwaySetting; x5hOutputReverse BEOK
                     if (getModelGroup() in ['BRT-100']) {                      // #0x0267 # Boost heating countdown in second (Received value [0, 0, 1, 44] for 300)
                         if (settings?.txtEnable) log.info "${device.displayName} Boost heating countdown: ${fncmd} seconds"
                     }
                     else if (getModelGroup() in ['AVATTO']) {     // Antifreeze mode ?
                         if (settings?.txtEnable) log.info "${device.displayName} Antifreeze mode is ${fncmd==0?'off':'on'} (${fncmd})"
+                    }
+                    else if (getModelGroup() in ['BEOK']) {
+                        if (settings?.txtEnable) log.info "${device.displayName} output reverse is ${fncmd==0?'off':'on'} (${fncmd})"
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} unknown parameter is: ${fncmd} (dp=${dp}, fncmd=${fncmd}, data=${descMap?.data})"
@@ -399,11 +426,14 @@ def parse(String description) {
                     // KK TODO - could be setpoint for some devices ?
                     // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_2 0x67 // Heatsetpoint for Moe ?
                     break
-                case 0x68 :     // (104) DP_IDENTIFIER_THERMOSTAT_VALVE_2 0x68 // Valve; also LIDL TempCalibration!
+                case 0x68 :     // (104) DP_IDENTIFIER_THERMOSTAT_VALVE_2 0x68 // Valve; also LIDL TempCalibration!; x5hBackplaneBrightness BEOK
                     if (getModelGroup() in ['AVATTO']) {
                         def value = safeToInt(fncmd)
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO Program Mode (104) received is: ${PROGRAM_MODE_NAME(value)} (${fncmd})"      // AVATTO programm mode 0:0ff 1:Mon-Fri 2:Mon-Sat 3:Mon-Sun    
                         device.updateSetting( "programMode",  [value:value.toString(), type:"enum"] )
+                    }
+                    else if (getModelGroup() in ['BEOK']) {
+                        if (settings?.txtEnable) log.info "${device.displayName} backplane brigtnes is ${fncmd}"
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
