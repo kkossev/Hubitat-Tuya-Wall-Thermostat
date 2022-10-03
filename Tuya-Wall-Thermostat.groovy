@@ -29,14 +29,14 @@
  *                                  Refresh command wakes up the display';  Google Home compatibility
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
- * ver. 1.2.6 2022-10-03 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK
+ * ver. 1.2.6 2022-10-03 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/03 10:45 PM"}
+def timeStamp() {"2022/10/03 11:32 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -96,7 +96,7 @@ metadata {
             input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 40, range: "28.0..90.0")
             input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
             input (name: "tempCalibration", type: "decimal", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
-            input (name: "hysteresis", type: "number", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1, range: "1.0..5.0")        // not available for BRT-100 !
+            input (name: "hysteresis", type: "decimal", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
             if (getModelGroup() in ['AVATTO'])  {
                 input (name: "programMode", type: "enum", title: "Program Mode (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
             }
@@ -399,8 +399,9 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"    // Model#1 only !!
                     }
                     else if (getModelGroup() in ['BEOK']) {
-                        if (settings?.txtEnable) log.info "${device.displayName} temperature difference is: ${fncmd}"
-                        // TODO - update the preference parameter !!
+                        double floatDif = (fncmd as double) / 10.0
+                        device.updateSetting("hysteresis", [value:floatDif, type:"decimal"])
+                        if (settings?.txtEnable) log.info "${device.displayName} (0x65) temperature difference (hysteresis) is: ${floatDif}"
                     }
                     else {
                         if (settings?.logEnable) log.info "${device.displayName} Thermostat SCHEDULE_1 (0x65) data received (not processed)...  ${fncmd}"
@@ -458,7 +459,7 @@ def parse(String description) {
                 case 0x6A :     // (106) DP_IDENTIFIER_THERMOSTAT_MODE_1 0x6A // mode used with DP_TYPE_ENUM    Energy saving mode (Received value 0:off / 1:on)
                     if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} Dead Zone temp (hysteresis) is: ${fncmd}C (dp=${dp}, fncmd=${fncmd})"
-                        device.updateSetting("hysteresis", fncmd)
+                        device.updateSetting("hysteresis", [value:fncmd, type:"decimal"])
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Energy saving mode? (dp=${dp}) is: ${fncmd} data = ${descMap?.data})"    // 0:function disabled / 1:function enabled
@@ -1113,18 +1114,19 @@ def updated() {
     def dp
     // tempCalibration
     dp = getModelGroup() in ['AVATTO', 'BEOK'] ? "1B" : getModelGroup() in ['BRT-100'] ? "69" : null
-    if (getModelGroup() in ['AVATTO', 'BEOK','BRT-100'] && dp != null) {
+    if (getModelGroup() in ['AVATTO', 'BEOK', 'BRT-100'] && dp != null) {
         log.trace "tempCalibration = ${tempCalibration}"
         fncmd = getModelGroup() in [ 'BEOK'] ? (safeToDouble( tempCalibration )*10) as int : safeToInt( tempCalibration ) 
         log.trace "fncmd = ${fncmd}"
-        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to ${fncmd}"
+        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to ${tempCalibration} (${fncmd})"
         cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))  
     }
     // hysteresis
-    if (getModelGroup() in ['AVATTO']) {
-        fncmd = safeToInt( hysteresis )
-        if (settings?.logEnable) log.trace "${device.displayName} setting hysteresis to= ${fncmd}"
-        cmds += sendTuyaCommand("6A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+    dp = getModelGroup() in ['AVATTO'] ? "6A" : getModelGroup() in ['BEOK'] ? "65" : null
+    if (getModelGroup() in ['AVATTO', 'BEOK']) {
+        fncmd = getModelGroup() in [ 'BEOK'] ? (safeToDouble( hysteresis )*10) as int : safeToInt( hysteresis ) 
+        if (settings?.logEnable) log.trace "${device.displayName} setting hysteresis to ${hysteresis} (${fncmd})"
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
     }
     // minTemp
     dp = getModelGroup() in ['AVATTO'] ? "1A" : getModelGroup() in ['BRT-100'] ? "6D" : null
@@ -1258,7 +1260,7 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || device.getDataValue("minTemp") == null) device.updateSetting("minTemp", 10)    
     if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 28)
     if (fullInit == true || device.getDataValue("tempCalibration") == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
-    if (fullInit == true || device.getDataValue("hysteresis") == null) device.updateSetting("hysteresis", 1)
+    if (fullInit == true || device.getDataValue("hysteresis") == null) device.updateSetting("hysteresis", [value:1.0, type:"decimal"])
     if (fullInit == true || device.getDataValue("sound") == null) device.updateSetting("sound", false)    
     
     //
