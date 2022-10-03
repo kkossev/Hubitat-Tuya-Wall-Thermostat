@@ -29,14 +29,14 @@
  *                                  Refresh command wakes up the display';  Google Home compatibility
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
- * ver. 1.2.5 2022-10-03 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK
+ * ver. 1.2.6 2022-10-03 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
-def version() { "1.2.5" }
-def timeStamp() {"2022/10/03 5:59 PM"}
+def version() { "1.2.6" }
+def timeStamp() {"2022/10/03 10:45 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -95,7 +95,7 @@ metadata {
             input (name: "minTemp", type: "number", title: "Minimim Temperature", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "5.0..20.0")
             input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 40, range: "28.0..90.0")
             input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
-            input (name: "tempCalibration", type: "number", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0, range: "-9.0..9.0")
+            input (name: "tempCalibration", type: "decimal", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
             input (name: "hysteresis", type: "number", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1, range: "1.0..5.0")        // not available for BRT-100 !
             if (getModelGroup() in ['AVATTO'])  {
                 input (name: "programMode", type: "enum", title: "Program Mode (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
@@ -596,14 +596,24 @@ def processTuyaTemperatureReport( fncmd )
 def processTuyaCalibration( dp, fncmd )
 {
     def temp = fncmd 
-    if (getModelGroup() in ['AVATTO'] ){    // (dp=27, fncmd=-1)
+    double doubleCalib = temp
+    if (getModelGroup() in ['AVATTO'] ){    // (dp=27, fncmd number)
         device.updateSetting("tempCalibration", temp)
         //log.trace "AVATTO calibration"
+    }
+    if (getModelGroup() in ['BEOK'] ){    // (dp=27, fncmd decimal X.X)
+        doubleCalib = safeToDouble(fncmd) / 10.0
+        device.updateSetting("tempCalibration", [value:doubleCalib, type:"decimal"])
+        log.trace "BEOK calibration ${doubleCalib}"
     }
     else  if (getModelGroup() in ['BRT-100'] && dp == 105) { // 0x69
         device.updateSetting("tempCalibration", temp)
         if (settings?.logEnable) log.trace "BRT-100 calibration"
     }
+    else {
+        if (settings?.logEnable) log.warn "${device.displayName} UNSUPPORTED temperature calibration for modelGroup=${getModelGroup()} : ${temp} (dp=${dp}, fncmd=${fncmd}) "
+    }
+/*    
     else {    // "_TZE200_aoclfnxz"
         if (settings?.logEnable) log.trace "other calibration, getModelGroup() = ${getModelGroup()} dp=${dp} fncmd = ${fncmd}"
         if (temp > 2048) {
@@ -611,7 +621,8 @@ def processTuyaCalibration( dp, fncmd )
         }
         temp = temp / 100        // KK - check !
     }
-    if (settings?.txtEnable) log.info "${device.displayName} temperature calibration (correction) is: ${temp} (dp=${dp}, fncmd=${fncmd}) "
+*/    
+    if (settings?.txtEnable) log.info "${device.displayName} temperature calibration (correction) is: ${doubleCalib} (dp=${dp}, fncmd=${fncmd}) "
 }
 
 def processBRT100Presets( dp, data ) {
@@ -1099,56 +1110,49 @@ def updated() {
         unschedule(logsOff)
     }
     def fncmd
+    def dp
+    // tempCalibration
+    dp = getModelGroup() in ['AVATTO', 'BEOK'] ? "1B" : getModelGroup() in ['BRT-100'] ? "69" : null
+    if (getModelGroup() in ['AVATTO', 'BEOK','BRT-100'] && dp != null) {
+        log.trace "tempCalibration = ${tempCalibration}"
+        fncmd = getModelGroup() in [ 'BEOK'] ? (safeToDouble( tempCalibration )*10) as int : safeToInt( tempCalibration ) 
+        log.trace "fncmd = ${fncmd}"
+        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to ${fncmd}"
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))  
+    }
+    // hysteresis
     if (getModelGroup() in ['AVATTO']) {
-        fncmd = safeToInt( tempCalibration )
-        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to= ${fncmd}"
-        cmds += sendTuyaCommand("1B", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
         fncmd = safeToInt( hysteresis )
         if (settings?.logEnable) log.trace "${device.displayName} setting hysteresis to= ${fncmd}"
-        cmds += sendTuyaCommand("6A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+        cmds += sendTuyaCommand("6A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+    }
+    // minTemp
+    dp = getModelGroup() in ['AVATTO'] ? "1A" : getModelGroup() in ['BRT-100'] ? "6D" : null
+    if (getModelGroup() in ['AVATTO','BRT-100'] && dp != null) {
         fncmd = safeToInt( minTemp )
         if (settings?.logEnable) log.trace "${device.displayName} setting minTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("1A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+    }
+    // maxTemp
+    dp = getModelGroup() in ['AVATTO'] ? "13" : getModelGroup() in ['BRT-100'] ? "6C" : null
+    if (getModelGroup() in ['AVATTO','BRT-100'] && dp != null) {
         fncmd = safeToInt( maxTemp )
         if (settings?.logEnable) log.trace "${device.displayName} setting maxTemp to= ${fncmd}"
         cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+    }
+    // programMode
+    if (getModelGroup() in ['AVATTO']) {
         if (settings?.programMode != null) {
             def value = safeToInt( programMode )
             if (settings?.logEnable) log.debug "${device.displayName} setting Program Mode to ${PROGRAM_MODE_NAME(value)} (${programMode})"
             cmds += sendTuyaCommand("68", DP_TYPE_ENUM, zigbee.convertToHexString(value as int, 2))
         }
     }
+    // sound
     if (getModelGroup() in ['BEOK']) {
         fncmd = settings?.sound == false ? 0 : 1
         if (settings?.logEnable) log.trace "${device.displayName} setting sound to ${fncmd}"
         cmds += sendTuyaCommand("07", DP_TYPE_BOOL, zigbee.convertToHexString(fncmd as int, 2))
-        //
-        
-        /*
-        fncmd = safeToInt( tempCalibration )
-        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to= ${fncmd}"
-        cmds += sendTuyaCommand("1B", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
-        fncmd = safeToInt( hysteresis )
-        if (settings?.logEnable) log.trace "${device.displayName} setting hysteresis to= ${fncmd}"
-        cmds += sendTuyaCommand("6A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
-        fncmd = safeToInt( minTemp )
-        if (settings?.logEnable) log.trace "${device.displayName} setting minTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("1A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
-        fncmd = safeToInt( maxTemp )
-        if (settings?.logEnable) log.trace "${device.displayName} setting maxTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
-*/
-    }
-    else if (getModelGroup() in ['BRT-100']) {
-        fncmd = safeToInt( tempCalibration )
-        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to= ${fncmd}"
-        cmds += sendTuyaCommand("69", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
-        fncmd = safeToInt( minTemp )
-        if (settings?.logEnable) log.trace "${device.displayName} setting minTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("6D", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
-        fncmd = safeToInt( maxTemp )
-        if (settings?.logEnable) log.trace "${device.displayName} setting maxTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("6C", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
     }
     
     /* unconditional */ log.info "${device.displayName} Update finished"
@@ -1253,7 +1257,7 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || device.getDataValue("resendFailed") == null) device.updateSetting("resendFailed", false)    
     if (fullInit == true || device.getDataValue("minTemp") == null) device.updateSetting("minTemp", 10)    
     if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 28)
-    if (fullInit == true || device.getDataValue("tempCalibration") == null) device.updateSetting("tempCalibration", 0)
+    if (fullInit == true || device.getDataValue("tempCalibration") == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
     if (fullInit == true || device.getDataValue("hysteresis") == null) device.updateSetting("hysteresis", 1)
     if (fullInit == true || device.getDataValue("sound") == null) device.updateSetting("sound", false)    
     
@@ -1380,22 +1384,17 @@ def controlMode( mode ) {
 def childLock( mode ) {
     ArrayList<String> cmds = []
     def dp
-    if (getModelGroup() in ["AVATTO"]) dp = "28"
-    else if (getModelGroup() in ["BRT-100"]) dp = "0D"
-    else return
-        
-    switch (mode) {
-        case "off" : 
-            cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "00")
-            break
-        case "on" :
-            cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "01")
-            break
-        default :
-            break
+    if (getModelGroup() in ["AVATTO", "BEOK"]) {dp = "28"}
+    else if (getModelGroup() in ["BRT-100"]) {dp = "0D"}
+    else {
+        if (settings?.txtEnable) log.warn "${device.displayName} child lock mode: ${mode} is not supported for modelGroup${getModelGroup()}"
     }
+    // TODO - check childLock for MOES
+    if (mode == "off") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "00")}
+    else if (mode == "on") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "01")}
+    else {if (settings?.txtEnable) log.warn "${device.displayName} unsupported child lock mode ${mode} !"}
     sendEvent(name: "childLock", value: mode)
-    if (settings?.logEnable) log.trace "${device.displayName} sending child lock mode : ${mode}"
+    if (settings?.txtEnable) log.info "${device.displayName} sending child lock mode : ${mode}"
     sendZigbeeCommands( cmds )    
 }
 
