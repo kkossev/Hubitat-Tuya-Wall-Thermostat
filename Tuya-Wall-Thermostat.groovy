@@ -29,14 +29,14 @@
  *                                  Refresh command wakes up the display';  Google Home compatibility
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
- * ver. 1.2.6 2022-10-03 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK
+ * ver. 1.2.5 2022-10-06 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
-def version() { "1.2.6" }
-def timeStamp() {"2022/10/03 11:32 PM"}
+def version() { "1.2.5" }
+def timeStamp() {"2022/10/06 6:01 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -93,10 +93,13 @@ metadata {
             input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes into schedule mode, then it automatically reverts back to manual mode</i>", defaultValue: false)
             input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
             input (name: "minTemp", type: "number", title: "Minimim Temperature", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "5.0..20.0")
-            input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 40, range: "28.0..90.0")
+            input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "20.0..60.0")
             input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
             input (name: "tempCalibration", type: "decimal", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
             input (name: "hysteresis", type: "decimal", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
+            if (getModelGroup() in ['BEOK']) {
+                input (name: "tempCeiling", type: "number", title: "Temperature Ceiling", description: "<i>The Maximum temperature of the external probe that will shut down the device></i>", defaultValue: 60, range: "20.0..90.0")
+            }
             if (getModelGroup() in ['AVATTO'])  {
                 input (name: "programMode", type: "enum", title: "Program Mode (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
             }
@@ -322,10 +325,18 @@ def parse(String description) {
                     }
                     break
                 case 0x13 :    // (19) Max Temp LIMIT AVATTO MOES, LIDL
-                    if (getModelGroup() in ['AVATTO', 'BEOK']) {
-                        device.updateSetting("maxTemp", fncmd)    // aka 'temperature ceiling'; x5hSetTempCeiling BEOK ( default 60 )
+                    if (getModelGroup() in ['BEOK']) {    //  aka 'temperature ceiling'; x5hSetTempCeiling BEOK ( default 60 ) ??? upper_temperature (BEOK)
+                        if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                        device.updateSetting("tempCeiling", fncmd)    //
                     }
-                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                    else if (getModelGroup() in ['AVATTO']) {
+                        device.updateSetting("maxTemp", fncmd)    //
+                        if (settings?.txtEnable) log.info "${device.displayName} AVATTO Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                    }
+                    else {
+                        // TODO - MOES !!
+                        if (settings?.txtEnable) log.info "${device.displayName} ${getModelGroup()} Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                    }
                     break
                 case 0x14 :    //  (20) Dead Zone Temp (hysteresis) MOES, LIDL
                     if (getModelGroup() in ['AVATTO'])  {
@@ -409,10 +420,12 @@ def parse(String description) {
                     break
                 case 0x66 :     // (102) min temperature limit; also LIDL EcoTemp; x5hProtectionTempLimit BEOK (default 35)
                     if (getModelGroup() in ['BEOK']) {
-                        if (settings?.txtEnable) log.info "${device.displayName} protection temperature limit is: ${fncmd}"
+                        if (settings?.txtEnable) log.info "${device.displayName} Max temperature limit is: ${fncmd}"
+                        device.updateSetting("maxTemp", fncmd)
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
+                        // TODO - set minTemp for AVATTO and MOES ???
                     }
                     break
                 case 0x67 :    // (103) max temperature limit; also LIDL AwaySetting; x5hOutputReverse BEOK
@@ -969,7 +982,7 @@ def setHeatingSetpoint( temperature ) {
         
         if (settings?.logEnable) log.trace "corrected heating setpoint${temperature}"
     }  
-    if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", 5);  device.updateSetting("maxTemp", 28)   }
+    if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", 5);  device.updateSetting("maxTemp", 35)   }
     if (temperature > settings?.maxTemp.value ) temperature = settings?.maxTemp.value
     if (temperature < settings?.minTemp.value ) temperature = settings?.minTemp.value
     
@@ -1142,6 +1155,13 @@ def updated() {
         if (settings?.logEnable) log.trace "${device.displayName} setting maxTemp to= ${fncmd}"
         cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
     }
+    // tempCeiling
+    dp = getModelGroup() in ['BEOK'] ? "13" : null
+    if (getModelGroup() in ['BEOK'] && dp != null) {    // TODO: tempCeiling for AVATTO and MOES !
+        fncmd = safeToInt( tempCeiling )
+        if (settings?.logEnable) log.trace "${device.displayName} setting tempCeiling to= ${fncmd}"
+        cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+    }
     // programMode
     if (getModelGroup() in ['AVATTO']) {
         if (settings?.programMode != null) {
@@ -1258,7 +1278,9 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || device.getDataValue("forceManual") == null) device.updateSetting("forceManual", false)    
     if (fullInit == true || device.getDataValue("resendFailed") == null) device.updateSetting("resendFailed", false)    
     if (fullInit == true || device.getDataValue("minTemp") == null) device.updateSetting("minTemp", 10)    
-    if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 28)
+    if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 35)
+    if (fullInit == true || device.getDataValue("tempCeiling") == null) device.updateSetting("tempCeiling", 60)
+    // tempCeiling
     if (fullInit == true || device.getDataValue("tempCalibration") == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
     if (fullInit == true || device.getDataValue("hysteresis") == null) device.updateSetting("hysteresis", [value:1.0, type:"decimal"])
     if (fullInit == true || device.getDataValue("sound") == null) device.updateSetting("sound", false)    
