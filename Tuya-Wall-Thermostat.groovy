@@ -29,14 +29,14 @@
  *                                  Refresh command wakes up the display';  Google Home compatibility
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
- * ver. 1.2.5 2022-10-06 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
+ * ver. 1.2.5 2022-10-07 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
 def version() { "1.2.5" }
-def timeStamp() {"2022/10/06 6:01 PM"}
+def timeStamp() {"2022/10/07 7:00 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -63,7 +63,6 @@ metadata {
         attribute "childLock", "enum", ["off", "on"]
 
         if (debug == true) {
-            command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
             command "zTest", [
                 [name:"dpCommand", type: "STRING", description: "Tuya DP Command", constraints: ["STRING"]],
                 [name:"dpValue",   type: "STRING", description: "Tuya DP value", constraints: ["STRING"]],
@@ -72,6 +71,7 @@ metadata {
         }
         command "initialize", [[name: "Initialize the thermostat after switching drivers.  \n\r   ***** Will load device default values! *****" ]]
         command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]        
+        command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
         
         // (AVATTO)
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_ye5jkfsb",  deviceJoinName: "AVATTO Wall Thermostat" // ME81AH 
@@ -92,16 +92,19 @@ metadata {
             input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
             input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes into schedule mode, then it automatically reverts back to manual mode</i>", defaultValue: false)
             input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
-            input (name: "minTemp", type: "number", title: "Minimim Temperature", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "5.0..20.0")
-            input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "20.0..60.0")
+            input (name: "minTemp", type: "number", title: "<b>Minimim Temperature</b>", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "5.0..20.0")
+            input (name: "maxTemp", type: "number", title: "<b>Maximum Temperature</b>", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "20.0..60.0")
             input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
-            input (name: "tempCalibration", type: "decimal", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
-            input (name: "hysteresis", type: "decimal", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
+            input (name: "tempCalibration", type: "decimal", title: "<b>Temperature Calibration</b>", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
+            input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
             if (getModelGroup() in ['BEOK']) {
-                input (name: "tempCeiling", type: "number", title: "Temperature Ceiling", description: "<i>The Maximum temperature of the external probe that will shut down the device></i>", defaultValue: 60, range: "20.0..90.0")
+                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>The Maximum temperature of the external probe that will shut down the device></i>", defaultValue: 60, range: "20.0..90.0")
+                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness</i>", defaultValue: '3', options: brightnessOptions)
+
+                // brightness
             }
             if (getModelGroup() in ['AVATTO'])  {
-                input (name: "programMode", type: "enum", title: "Program Mode (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
+                input (name: "programMode", type: "enum", title: "<b>Program Mode</b> (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
             }
             if (getModelGroup() in ['BEOK'])  {
                 input (name: "sound", type: "bool", title: "<b>Disable/Enable sound</b>", description: "<i>Disable/Enable sound</i>", defaultValue: true)
@@ -163,16 +166,24 @@ def parse(String description) {
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
         Map descMap = zigbee.parseDescriptionAsMap(description)
         if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "24") {        //getSETTIME
+            // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)	local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
+            // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).
             if (settings?.logEnable) log.debug "${device.displayName} time synchronization request from device, descMap = ${descMap}"
             def offset = 0
             try {
-                offset = location.getTimeZone().getOffset(new Date().getTime())
+                offset = location.getTimeZone().getOffset(new Date().getTime()) 
                 //if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset}"
             } catch(e) {
                 log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. Setting timezone offset to zero"
             }
-            def cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
-            // log.trace "${device.displayName} now is: ${now()}"  // KK TODO - converto to Date/Time string!        
+            //
+            def cmds
+            if ( getModelGroup() in ['BEOK'] ) {
+                cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)((now()-3600000L*5)/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
+            }
+            else {
+                cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
+            }
             if (settings?.logEnable) log.debug "${device.displayName} sending time data : ${cmds}"
             cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
             if (state.txCounter != null) state.txCounter = state.txCounter + 1
@@ -1224,6 +1235,7 @@ def factoryReset( yes ) {
             sendZigbeeCommands( cmds ) 
         */
         case 'AVATTO' :
+        case 'BEOK' :
             fncmd = 1    // reset!
             cmds += sendTuyaCommand("27", DP_TYPE_BOOL, zigbee.convertToHexString(fncmd as int, 2))
             break
@@ -1273,17 +1285,19 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || state.lastThermostatMode == null) state.lastThermostatMode = "unknown"
     if (fullInit == true || state.lastThermostatOperatingState == null) state.lastThermostatOperatingState = "unknown"
     //
-    if (fullInit == true || device.getDataValue("logEnable") == null) device.updateSetting("logEnable", true)
-    if (fullInit == true || device.getDataValue("txtEnable") == null) device.updateSetting("txtEnable", true)
-    if (fullInit == true || device.getDataValue("forceManual") == null) device.updateSetting("forceManual", false)    
-    if (fullInit == true || device.getDataValue("resendFailed") == null) device.updateSetting("resendFailed", false)    
-    if (fullInit == true || device.getDataValue("minTemp") == null) device.updateSetting("minTemp", 10)    
-    if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 35)
-    if (fullInit == true || device.getDataValue("tempCeiling") == null) device.updateSetting("tempCeiling", 60)
+    if (fullInit == true || settings?.logEnable == null) device.updateSetting("logEnable", true)
+    if (fullInit == true || settings?.txtEnable == null) device.updateSetting("txtEnable", true)
+    if (fullInit == true || settings?.forceManual == null) device.updateSetting("forceManual", false)    
+    if (fullInit == true || settings?.resendFailed == null) device.updateSetting("resendFailed", false)    
+    if (fullInit == true || settings?.minTemp == null) device.updateSetting("minTemp", 10)    
+    if (fullInit == true || settings?.maxTemp == null) device.updateSetting("maxTemp", 35)
+    if (fullInit == true || settings?.tempCeiling == null) device.updateSetting("tempCeiling", 60)
     // tempCeiling
-    if (fullInit == true || device.getDataValue("tempCalibration") == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
-    if (fullInit == true || device.getDataValue("hysteresis") == null) device.updateSetting("hysteresis", [value:1.0, type:"decimal"])
-    if (fullInit == true || device.getDataValue("sound") == null) device.updateSetting("sound", false)    
+    if (fullInit == true || settings?.tempCalibration == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
+    if (fullInit == true || settings?.hysteresis == null) device.updateSetting("hysteresis", [value:1.0, type:"decimal"])
+    if (fullInit == true || settings?.sound == null) device.updateSetting("sound", false)    
+    if (fullInit == true || settings?.brightness == null) device.updateSetting("brightness", [value:"3", type:"enum"])
+
     
     //
     
@@ -1484,7 +1498,10 @@ def zTest( dpCommand, dpValue, dpTypeString ) {
     }     
 
     sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValHex) )
-}    
+}
+
+def test() {
+}
 /*
     BRT-100 Zigbee network re-pair procedure: After the actuator has completed self-test, long press [X] access to interface, short press '+' to choose WiFi icon,
         short press [X] to confirm this option, long press [X]. WiFi icon will start flashing when in pairing mode.
