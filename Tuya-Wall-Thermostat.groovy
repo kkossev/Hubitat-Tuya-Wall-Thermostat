@@ -36,7 +36,7 @@
 */
 
 def version() { "1.2.5" }
-def timeStamp() {"2022/10/07 7:00 AM"}
+def timeStamp() {"2022/10/07 8:01 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -167,19 +167,20 @@ def parse(String description) {
         Map descMap = zigbee.parseDescriptionAsMap(description)
         if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "24") {        //getSETTIME
             // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)	local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
-            // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).
+            // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).                 // Y2K = 946684800 
             if (settings?.logEnable) log.debug "${device.displayName} time synchronization request from device, descMap = ${descMap}"
             def offset = 0
             try {
                 offset = location.getTimeZone().getOffset(new Date().getTime()) 
-                //if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset}"
+                if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset}"
             } catch(e) {
                 log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. Setting timezone offset to zero"
             }
             //
             def cmds
             if ( getModelGroup() in ['BEOK'] ) {
-                cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)((now()-3600000L*5)/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
+
+                cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)((now() -3600000L*5)/1000),8) +  zigbee.convertToHexString((int)((now()  +3600000L*8)/1000), 8))    // works OK between 8 and 24 h
             }
             else {
                 cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
