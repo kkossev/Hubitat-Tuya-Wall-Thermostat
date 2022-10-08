@@ -29,14 +29,15 @@
  *                                  Refresh command wakes up the display';  Google Home compatibility
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
- * ver. 1.2.5 2022-10-07 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
+ * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
+ *                                  added setBrightness command
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
 def version() { "1.2.5" }
-def timeStamp() {"2022/10/07 8:01 AM"}
+def timeStamp() {"2022/10/08 9:23 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -70,7 +71,9 @@ metadata {
             ]
         }
         command "initialize", [[name: "Initialize the thermostat after switching drivers.  \n\r   ***** Will load device default values! *****" ]]
-        command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]        
+        command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]
+        command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: ['off','low', 'medium', 'high'], description: "Set LCD brightness for BEOK thermostats"] ]
+        
         command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
         
         // (AVATTO)
@@ -202,13 +205,12 @@ def parse(String description) {
             }
             
         } else if ((descMap?.clusterInt==CLUSTER_TUYA) && (descMap?.command == "01" || descMap?.command == "02")) {
-            //if (descMap?.command == "02") { if (settings?.logEnable) log.warn "command == 02 !"  }   
             def transid = zigbee.convertHexToInt(descMap?.data[1])           // "transid" is just a "counter", a response will have the same transid as the command
             def dp = zigbee.convertHexToInt(descMap?.data[2])                // "dp" field describes the action/message of a command frame
             def dp_id = zigbee.convertHexToInt(descMap?.data[3])             // "dp_identifier" is device dependant
             def fncmd = getTuyaAttributeValue(descMap?.data)                 // 
             if (dp == state.old_dp && fncmd == state.old_fncmd) {
-                if (settings?.logEnable) log.warn "(duplicate) transid=${transid} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
+                if (settings?.logEnable) log.debug "(duplicate) transid=${transid} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
                 if ( state.duplicateCounter != null ) state.duplicateCounter = state.duplicateCounter +1
                 return
             }
@@ -1436,6 +1438,38 @@ def childLock( mode ) {
     if (settings?.txtEnable) log.info "${device.displayName} sending child lock mode : ${mode}"
     sendZigbeeCommands( cmds )    
 }
+/*
+@Field static final Map brightnessOptions = [
+    '0': 'off',
+    '1': 'low',
+    '2': 'medium',
+    '3': 'high'
+]
+*/
+
+def setBrightness( bri ) {
+    ArrayList<String> cmds = []
+    def dp
+    if (getModelGroup() in ["BEOK"]) {
+        dp = "68"
+        if (bri in ['off','low', 'medium', 'high']) {
+            def value = brightnessOptions.find{it.value == bri}.key        // safeToInt(brightness.value)
+            log.trace "value = ${value}"
+            if (value != null) {
+                def dpValHex = zigbee.convertToHexString(value as int, 2)
+                cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
+                if (settings?.logEnable) log.debug "${device.displayName} changing brightness to ${bri} ($value)"
+                sendZigbeeCommands( cmds )    
+            }
+        }
+        else {
+            if (settings?.txtEnable) log.warn "${device.displayName} invalid brightness control ${bri}"
+        }
+    }
+    else {
+        if (settings?.txtEnable) log.warn "${device.displayName} brightness control is not supported for modelGroup${getModelGroup()}"
+    }
+}
 
 def calibration( offset ) {
     offset = 0
@@ -1501,8 +1535,11 @@ def zTest( dpCommand, dpValue, dpTypeString ) {
     sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValHex) )
 }
 
+    
 def test() {
+
 }
+    
 /*
     BRT-100 Zigbee network re-pair procedure: After the actuator has completed self-test, long press [X] access to interface, short press '+' to choose WiFi icon,
         short press [X] to confirm this option, long press [X]. WiFi icon will start flashing when in pairing mode.
