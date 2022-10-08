@@ -30,14 +30,14 @@
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
- *                                  added setBrightness command
+ *                                  added setBrightness command and parameter; maxTemp fix; 
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
 def version() { "1.2.5" }
-def timeStamp() {"2022/10/08 9:23 AM"}
+def timeStamp() {"2022/10/08 10:29 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -69,6 +69,7 @@ metadata {
                 [name:"dpValue",   type: "STRING", description: "Tuya DP value", constraints: ["STRING"]],
                 [name:"dpType",    type: "ENUM",   constraints: ["DP_TYPE_VALUE", "DP_TYPE_BOOL", "DP_TYPE_ENUM"], description: "DP data type"] 
             ]
+            command "test"
         }
         command "initialize", [[name: "Initialize the thermostat after switching drivers.  \n\r   ***** Will load device default values! *****" ]]
         command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]
@@ -95,13 +96,13 @@ metadata {
             input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
             input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes into schedule mode, then it automatically reverts back to manual mode</i>", defaultValue: false)
             input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
-            input (name: "minTemp", type: "number", title: "<b>Minimim Temperature</b>", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "5.0..20.0")
-            input (name: "maxTemp", type: "number", title: "<b>Maximum Temperature</b>", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "20.0..60.0")
+            input (name: "minTemp", type: "number", title: "<b>Minimim Temperature</b>", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "5.0..60.0")
+            input (name: "maxTemp", type: "number", title: "<b>Maximum Temperature</b>", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "5.0..60.0")
             input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
             input (name: "tempCalibration", type: "decimal", title: "<b>Temperature Calibration</b>", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
             input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
             if (getModelGroup() in ['BEOK']) {
-                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>The Maximum temperature of the external probe that will shut down the device></i>", defaultValue: 60, range: "20.0..90.0")
+                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>The Maximum temperature of the external probe that will shut down the device></i>", defaultValue: 60, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
                 input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness</i>", defaultValue: '3', options: brightnessOptions)
 
                 // brightness
@@ -339,12 +340,8 @@ def parse(String description) {
                     }
                     break
                 case 0x13 :    // (19) Max Temp LIMIT AVATTO MOES, LIDL
-                    if (getModelGroup() in ['BEOK']) {    //  aka 'temperature ceiling'; x5hSetTempCeiling BEOK ( default 60 ) ??? upper_temperature (BEOK)
-                        if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
-                        device.updateSetting("tempCeiling", fncmd)    //
-                    }
-                    else if (getModelGroup() in ['AVATTO']) {
-                        device.updateSetting("maxTemp", fncmd)    //
+                    if (getModelGroup() in ['AVATTO','BEOK']) {
+                        device.updateSetting("maxTemp", fncmd)
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     }
                     else {
@@ -433,9 +430,9 @@ def parse(String description) {
                     }
                     break
                 case 0x66 :     // (102) min temperature limit; also LIDL EcoTemp; x5hProtectionTempLimit BEOK (default 35)
-                    if (getModelGroup() in ['BEOK']) {
-                        if (settings?.txtEnable) log.info "${device.displayName} Max temperature limit is: ${fncmd}"
-                        device.updateSetting("maxTemp", fncmd)
+                    if (getModelGroup() in ['BEOK']) {    //  aka 'temperature ceiling';
+                        if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                        device.updateSetting("tempCeiling", fncmd)    //
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
@@ -1170,11 +1167,11 @@ def updated() {
         cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
     }
     // tempCeiling
-    dp = getModelGroup() in ['BEOK'] ? "13" : null
+    dp = getModelGroup() in ['BEOK'] ? "66" : null
     if (getModelGroup() in ['BEOK'] && dp != null) {    // TODO: tempCeiling for AVATTO and MOES !
         fncmd = safeToInt( tempCeiling )
         if (settings?.logEnable) log.trace "${device.displayName} setting tempCeiling to= ${fncmd}"
-        cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
     }
     // programMode
     if (getModelGroup() in ['AVATTO']) {
@@ -1189,6 +1186,19 @@ def updated() {
         fncmd = settings?.sound == false ? 0 : 1
         if (settings?.logEnable) log.trace "${device.displayName} setting sound to ${fncmd}"
         cmds += sendTuyaCommand("07", DP_TYPE_BOOL, zigbee.convertToHexString(fncmd as int, 2))
+    }
+    // brightness
+    if (getModelGroup() in ['BEOK']) {
+        if (settings?.brightness != null) {
+            def value = safeToInt(settings?.brightness.value)
+            def str = brightnessOptions.find{it.key == value}.value
+            if (value != null) {
+                def dpValHex = zigbee.convertToHexString(value as int, 2)
+                cmds += sendTuyaCommand("68", DP_TYPE_ENUM, dpValHex)            
+                if (settings?.logEnable) log.debug "${device.displayName} changing brightness to ${str} ($value)"
+                sendZigbeeCommands( cmds )    
+            }
+        }
     }
     
     /* unconditional */ log.info "${device.displayName} Update finished"
