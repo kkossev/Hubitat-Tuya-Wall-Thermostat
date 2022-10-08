@@ -30,14 +30,14 @@
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
- *                                  added setBrightness command and parameter; maxTemp fix; 
+ *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix;
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
 def version() { "1.2.5" }
-def timeStamp() {"2022/10/08 10:29 AM"}
+def timeStamp() {"2022/10/08 10:52 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -102,7 +102,7 @@ metadata {
             input (name: "tempCalibration", type: "decimal", title: "<b>Temperature Calibration</b>", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
             input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
             if (getModelGroup() in ['BEOK']) {
-                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>The Maximum temperature of the external probe that will shut down the device></i>", defaultValue: 60, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
+                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>temperature limit parameter (unknown fucntion) ></i>", defaultValue: 60, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
                 input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness</i>", defaultValue: '3', options: brightnessOptions)
 
                 // brightness
@@ -263,10 +263,20 @@ def parse(String description) {
                             if (settings?.logEnable) log.trace "...continue in mode ${device.currentState('thermostatMode').value}..."
                         }
                     }
-                case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // BEOK x5hWorkingStatus
+                case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // BEOK x5hWorkingStatus (operatingState) !
                     if (settings?.logEnable) log.trace "processing command dp=${dp} fncmd=${fncmd}"
                     // TODO - use processTuyaModes3( dp, fncmd )
-                    if (descMap?.data.size() <= 7) {
+                    if (getModelGroup() in ['BEOK']) { // operatingState for BEOK
+                        if (fncmd == 1) {
+                            sendThermostatOperatingStateEvent("heating")
+                        }
+                        else {    // 
+                            sendThermostatOperatingStateEvent("idle")
+                        }
+                        if (settings?.logEnable) {log.info "${device.displayName} Thermostat working status (operatingState)reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
+                        else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat working status (operatingState)reported is: ${mode}"}
+                    }
+                    else if (descMap?.data.size() <= 7) { // AVATTO / MOES
                         def mode
                         if (!(fncmd == 0)) {        // KK inverted
                             mode = "auto"    // scheduled
@@ -281,8 +291,8 @@ def parse(String description) {
                         } else {
                             mode = "heat"    // manual
                         }
-                        if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode (working status) reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
-                        else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode (working status) reported is: ${mode}"}
+                        if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
+                        else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: ${mode}"}
                         sendEvent(name: "thermostatMode", value: mode, displayed: true)    // mode was confirmed from the Preset info data...
                         state.lastThermostatMode = mode
                     } 
@@ -342,7 +352,7 @@ def parse(String description) {
                 case 0x13 :    // (19) Max Temp LIMIT AVATTO MOES, LIDL
                     if (getModelGroup() in ['AVATTO','BEOK']) {
                         device.updateSetting("maxTemp", fncmd)
-                        if (settings?.txtEnable) log.info "${device.displayName} AVATTO Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                        if (settings?.txtEnable) log.info "${device.displayName} AVATTO & BEOK Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     }
                     else {
                         // TODO - MOES !!
