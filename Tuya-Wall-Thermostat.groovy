@@ -30,14 +30,14 @@
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
- *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix
+ *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
 def version() { "1.2.5" }
-def timeStamp() {"2022/10/08 12:30 PM"}
+def timeStamp() {"2022/10/08 1:38 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -584,34 +584,18 @@ def processTuyaHeatSetpointReport( fncmd )
 {                        
     def setpointValue
     def model = getModelGroup()
-    switch (model) {
-        case 'AVATTO' :
-            setpointValue = fncmd
-            break
-        case 'MOES' :
-            setpointValue = fncmd
-            break
-        case 'BEOK' :
+    if (getModelGroup() in ['AVATTO', 'MOES', 'BRT-100' ]) {
+        setpointValue = fncmd as int
+    }
+    else if (getModelGroup() in ['BEOK', 'TEST3']) {
             setpointValue = fncmd / 10.0
-            break
-        case 'MODEL3' :
-            setpointValue = fncmd
-            break
-        case 'BRT-100' :
-            setpointValue = fncmd
-            break
-        case 'TEST2' :
-        case 'TEST3' :
-            setpointValue = fncmd / 10.0
-            break
-        case 'UNKNOWN' :
-        default :
-            setpointValue = fncmd
-            break
+    }
+    else {
+        setpointValue = fncmd
     }
     if (settings?.txtEnable) log.info "${device.displayName} heatingSetpoint is: ${setpointValue}"+"\u00B0"+"C"
-    sendEvent(name: "heatingSetpoint", value: setpointValue as int, unit: "\u00B0"+"C", displayed: true)
-    sendEvent(name: "thermostatSetpoint", value: setpointValue as int, unit: "\u00B0"+"C", displayed: false)        // Google Home compatibility
+    sendEvent(name: "heatingSetpoint", value: setpointValue, unit: "\u00B0"+"C", displayed: true)
+    sendEvent(name: "thermostatSetpoint", value: setpointValue, unit: "\u00B0"+"C", displayed: false)        // Google Home compatibility
     if (setpointValue == state.setpoint)  {
         state.setpoint = 0
     }                        
@@ -1010,32 +994,42 @@ def setThermostatSetpoint( temperature ) {
     setHeatingSetpoint( temperature )
 }
 
+import java.text.DecimalFormat;
+
 //  ThermostatHeatingSetpoint command
 //  sends TuyaCommand and checks after 4 seconds
 //  1°C steps. (0.5°C setting on the TRV itself, rounded for zigbee interface)
 def setHeatingSetpoint( temperature ) {
-    def previousSetpoint = device.currentState('heatingSetpoint').value as int
+    def previousSetpoint = device.currentState('heatingSetpoint', true).value /*as int*/
+    double tempDouble
     if (settings?.logEnable) log.trace "setHeatingSetpoint temperature = ${temperature}  as int = ${temperature as int} (previousSetpointt = ${previousSetpoint})"
-    if (temperature != (temperature as int)) {
-        if (temperature > previousSetpoint) {
-            temperature = (temperature + 0.5 ) as int
-        }
-        else {
-            temperature = temperature as int
-        }
-        
+    if (getModelGroup() in ['BEOK']) {
+        if (settings?.logEnable) log.debug "skipping correction of heating setpoint${temperature} for BEOK!"
+        tempDouble = safeToDouble(temperature)
+    }
+    else {
+        if (temperature != (temperature as int)) {
+            if (temperature > previousSetpoint) {
+                temperature = (temperature + 0.5 ) as int
+            }
+            else {
+                temperature = temperature as int
+            }
         if (settings?.logEnable) log.trace "corrected heating setpoint${temperature}"
-    }  
+        }
+        tempDouble = temperature
+    }
     if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", 5);  device.updateSetting("maxTemp", 35)   }
-    if (temperature > settings?.maxTemp.value ) temperature = settings?.maxTemp.value
-    if (temperature < settings?.minTemp.value ) temperature = settings?.minTemp.value
-    
-    sendEvent(name: "heatingSetpoint", value: temperature as int, unit: "\u00B0"+"C", displayed: true)
-    sendEvent(name: "thermostatSetpoint", value: temperature as int, unit: "\u00B0"+"C", displayed: true)
+    if (tempDouble > settings?.maxTemp.value ) tempDouble = settings?.maxTemp.value
+    if (tempDouble < settings?.minTemp.value ) tempDouble = settings?.minTemp.value
+    String strTemp = String.format( "%.1f", tempDouble)
+
+    sendEvent(name: "heatingSetpoint", value: strTemp, unit: "\u00B0"+"C", displayed: true)
+    sendEvent(name: "thermostatSetpoint", value: strTemp, unit: "\u00B0"+"C", displayed: true)
     updateDataValue("lastRunningMode", "heat")
     
     state.heatingSetPointRetry = 0
-    sendTuyaHeatingSetpoint( temperature )
+    sendTuyaHeatingSetpoint( tempDouble )
 }
 
 
