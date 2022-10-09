@@ -31,7 +31,7 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
- * ver. 1.2.6 2022-10-0809kossev  - (dev. branch) - brightness control bug dix;
+ * ver. 1.2.6 2022-10-0809kossev  - (dev. branch) - brightness control bug fix;
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
