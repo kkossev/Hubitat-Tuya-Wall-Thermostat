@@ -31,13 +31,14 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
+ * ver. 1.2.6 2022-10-0809kossev  - (dev. branch) - brightness control bug dix;
  *
  *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
  *
 */
 
-def version() { "1.2.5" }
-def timeStamp() {"2022/10/08 1:38 PM"}
+def version() { "1.2.6" }
+def timeStamp() {"2022/10/09 10:33 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -102,8 +103,8 @@ metadata {
             input (name: "tempCalibration", type: "decimal", title: "<b>Temperature Calibration</b>", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
             input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
             if (getModelGroup() in ['BEOK']) {
-                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>temperature limit parameter (unknown fucntion) ></i>", defaultValue: 60, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
-                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness</i>", defaultValue: '3', options: brightnessOptions)
+                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>temperature limit parameter (unknown functionality) ></i>", defaultValue: 60, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
+                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness control</i>", defaultValue: 3, options: brightnessOptions)
 
                 // brightness
             }
@@ -493,7 +494,8 @@ def parse(String description) {
                         device.updateSetting( "programMode",  [value:value.toString(), type:"enum"] )
                     }
                     else if (getModelGroup() in ['BEOK']) {
-                        if (settings?.txtEnable) log.info "${device.displayName} backplane brigtnes is ${fncmd}"
+                        if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${fncmd}"
+                        //TODO - check!
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
@@ -1023,7 +1025,7 @@ def setHeatingSetpoint( temperature ) {
     if (tempDouble > settings?.maxTemp.value ) tempDouble = settings?.maxTemp.value
     if (tempDouble < settings?.minTemp.value ) tempDouble = settings?.minTemp.value
     String strTemp = String.format( "%.1f", tempDouble)
-
+    
     sendEvent(name: "heatingSetpoint", value: strTemp, unit: "\u00B0"+"C", displayed: true)
     sendEvent(name: "thermostatSetpoint", value: strTemp, unit: "\u00B0"+"C", displayed: true)
     updateDataValue("lastRunningMode", "heat")
@@ -1336,7 +1338,7 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || settings?.tempCalibration == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
     if (fullInit == true || settings?.hysteresis == null) device.updateSetting("hysteresis", [value:1.0, type:"decimal"])
     if (fullInit == true || settings?.sound == null) device.updateSetting("sound", false)    
-    if (fullInit == true || settings?.brightness == null) device.updateSetting("brightness", [value:"3", type:"enum"])
+    if (fullInit == true || settings?.brightness == null) device.updateSetting("brightness", [value:3, type:"enum"])
 
     
     //
