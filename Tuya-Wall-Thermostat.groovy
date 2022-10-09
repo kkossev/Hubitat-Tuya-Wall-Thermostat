@@ -31,9 +31,9 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
- * ver. 1.2.6 2022-10-0809kossev  - (dev. branch) - brightness control bug fix;
+ * ver. 1.2.6 2022-10-0809kossev  - (dev. branch) - brightness control bug fix; scientific representation bug fix
  *
- *                                  TODO:  add forceOn; add Frost protection mode? ; add sensorMode for AVATTO?
+ *
  *
 */
 
@@ -1024,10 +1024,9 @@ def setHeatingSetpoint( temperature ) {
     if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", 5);  device.updateSetting("maxTemp", 35)   }
     if (tempDouble > settings?.maxTemp.value ) tempDouble = settings?.maxTemp.value
     if (tempDouble < settings?.minTemp.value ) tempDouble = settings?.minTemp.value
-    String strTemp = String.format( "%.1f", tempDouble)
-    
-    sendEvent(name: "heatingSetpoint", value: strTemp, unit: "\u00B0"+"C", displayed: true)
-    sendEvent(name: "thermostatSetpoint", value: strTemp, unit: "\u00B0"+"C", displayed: true)
+    tempDouble = tempDouble.Round(1)
+    sendEvent(name: "heatingSetpoint", value: tempDouble, unit: "\u00B0"+"C", displayed: true)
+    sendEvent(name: "thermostatSetpoint", value: tempDouble, unit: "\u00B0"+"C", displayed: true)
     updateDataValue("lastRunningMode", "heat")
     
     state.heatingSetPointRetry = 0
