@@ -31,20 +31,21 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
- * ver. 1.2.6 2022-10-0809kossev  - (dev. branch) - brightness control bug fix; scientific representation bug fix
+ * ver. 1.2.6 2022-10-14 kossev  - (dev. branch) - brightness control bug fix; scientific representation bug fix; BEOK time sync workaround?; 
  *
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/09 10:33 AM"}
+def timeStamp() {"2022/10/14 6:42 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
 import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubAction
 import hubitat.device.Protocol
+import groovy.time.TimeCategory
 
 @Field static final Boolean debug = false
 
@@ -175,17 +176,27 @@ def parse(String description) {
             // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).                 // Y2K = 946684800 
             if (settings?.logEnable) log.debug "${device.displayName} time synchronization request from device, descMap = ${descMap}"
             def offset = 0
+            def offsetHours = 0
+            Calendar cal=Calendar.getInstance();    //it return same time as new Date()
+            def hour = cal.get(Calendar.HOUR_OF_DAY)
             try {
                 offset = location.getTimeZone().getOffset(new Date().getTime()) 
-                if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset}"
+                offsetHours = (offset / 3600000) as int
+                if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset} (${offsetHours} hours), current hour is ${hour} h"
             } catch(e) {
                 log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. Setting timezone offset to zero"
             }
             //
             def cmds
             if ( getModelGroup() in ['BEOK'] ) {
-
-                cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)((now() -3600000L*5)/1000),8) +  zigbee.convertToHexString((int)((now()  +3600000L*8)/1000), 8))    // works OK between 8 and 24 h
+                // TODO - do NOT synchronize the clock between 00:00 and 09:00 local time !!
+                if (hour >= 8) {
+                    cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)((now() - 3600000L * (8-offsetHours))/1000),8) +  zigbee.convertToHexString((int)((now() + 3600000L * 8) / 1000), 8))    // works OK between 8 and 24 h
+                }
+                else {
+                    if (settings?.logEnable) log.debug "${device.displayName} SKIPPED time synchronization (current hour is ${hour} h)"
+                    return null
+                }
             }
             else {
                 cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
@@ -226,8 +237,6 @@ def parse(String description) {
                         processBRT100Presets( dp, fncmd )                       // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
                     }
                     else {    // AVATTO switch (boolean) // state; BEOK x5hState
-                        /* version 1.0.4 */
-                        //def mode = (fncmd == 0) ? "off" : "heat"
                         def mode = (fncmd == 0) ? "off" : state.lastThermostatMode    // version 1.2.3
                         if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode (switch state) reported is: ${mode} (dp=${dp}, fncmd=${fncmd})"}
                         else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode (switch state) reported is: ${mode}"}
@@ -960,7 +969,7 @@ def sendTuyaHeatingSetpoint( temperature ) {
             dp = "10"
             settemp = temperature
             break
-        case 'MOES' :                            // MOES - 0.5 precision? ( and double the setpoint value ? )
+        case 'MOES' :                            // MOES - 0.5 precision? ( and double the setpoint value ? ) TODO !!!
             dp = "10"
             settemp = temperature                // KK check!
             break
@@ -1573,8 +1582,10 @@ def zTest( dpCommand, dpValue, dpTypeString ) {
     sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValHex) )
 }
 
-    
+
 def test() {
+    
+
 
 }
     
