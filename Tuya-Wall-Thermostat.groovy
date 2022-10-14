@@ -31,14 +31,14 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
- * ver. 1.2.6 2022-10-14 kossev  - (dev. branch) - brightness control bug fix; scientific representation bug fix; BEOK time sync workaround?; round() bug fix;
+ * ver. 1.2.6 2022-10-14 kossev  - (dev. branch) - brightness control bug fix; scientific representation bug fix; BEOK time sync workaround?; round() bug fix; parameters number/decimal fixes;
  *
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/14 7:29 AM"}
+def timeStamp() {"2022/10/14 7:39 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -63,6 +63,8 @@ metadata {
         capability "ThermostatSetpoint"
         capability "ThermostatMode"
         capability "Battery"                    // BRT-100
+        capability "Presence Sensor"
+        
         
         attribute "childLock", "enum", ["off", "on"]
 
@@ -99,16 +101,14 @@ metadata {
             input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
             input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes into schedule mode, then it automatically reverts back to manual mode</i>", defaultValue: false)
             input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
-            input (name: "minTemp", type: "number", title: "<b>Minimim Temperature</b>", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "5.0..60.0")
-            input (name: "maxTemp", type: "number", title: "<b>Maximum Temperature</b>", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "5.0..60.0")
+            input (name: "minTemp", type: "number", title: "<b>Minimim Temperature</b>", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "0..60")
+            input (name: "maxTemp", type: "number", title: "<b>Maximum Temperature</b>", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "35..95")
             input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
             input (name: "tempCalibration", type: "decimal", title: "<b>Temperature Calibration</b>", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
-            input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
+            input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 0.5 .. 5.0 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
             if (getModelGroup() in ['BEOK']) {
-                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>temperature limit parameter (unknown functionality) ></i>", defaultValue: 60, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
+                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>temperature limit parameter (unknown functionality) ></i>", defaultValue: 35, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
                 input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness control</i>", defaultValue: 3, options: brightnessOptions)
-
-                // brightness
             }
             if (getModelGroup() in ['AVATTO'])  {
                 input (name: "programMode", type: "enum", title: "<b>Program Mode</b> (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
@@ -140,6 +140,8 @@ private PROGRAM_MODE_VALUE(mode) { mode == "off" ? 0 : mode ==  "Mon-Fri" ? 1 : 
 private PROGRAM_MODE_NAME(value) { value == 0 ? "off" : value == 1 ? "Mon-Fri" : value == 2 ? "Mon-Sat" : value == 3 ? "Mon-Sun" : null }
 
 
+@Field static final Integer presenceCountTreshold = 3
+@Field static final Integer defaultPollingInterval = 3600
 @Field static final Integer MaxRetries = 3
                                 
 // KK TODO !
@@ -169,6 +171,7 @@ private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
 def parse(String description) {
     checkDriverVersion()
     if (state.rxCounter != null) state.rxCounter = state.rxCounter + 1
+    setPresent()
     //if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
         Map descMap = zigbee.parseDescriptionAsMap(description)
@@ -382,9 +385,13 @@ def parse(String description) {
                     }
                     break
                 case 0x13 :    // (19) Max Temp LIMIT AVATTO MOES, LIDL
-                    if (getModelGroup() in ['AVATTO','BEOK']) {
-                        device.updateSetting("maxTemp", fncmd)
-                        if (settings?.txtEnable) log.info "${device.displayName} AVATTO & BEOK Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                    if (getModelGroup() in ['AVATTO']) {
+                        device.updateSetting("maxTemp", [value: fncmd as int , type:"number"])
+                        if (settings?.txtEnable) log.info "${device.displayName} AVATTO Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                    }
+                    else if (getModelGroup() in ['BEOK']) {
+                        device.updateSetting("maxTemp", [value: (fncmd/10) as int , type:"number"])
+                        if (settings?.txtEnable) log.info "${device.displayName} BEOK Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     }
                     else {
                         // TODO - MOES !!
@@ -394,9 +401,11 @@ def parse(String description) {
                 case 0x14 :    //  (20) Dead Zone Temp (hysteresis) MOES, LIDL
                     if (getModelGroup() in ['AVATTO'])  {
                         if (settings?.txtEnable) log.info "${device.displayName} lower limit F is: ${fncmd}"
+                        // TODO - clarify!
                     }
                     else {    // KK TODO - also Valve state report : on=1 / off=0 ?  DP_IDENTIFIER_THERMOSTAT_VALVE 0x14 // Valve
                         if (settings?.txtEnable) log.info "${device.displayName} Dead Zone Temp (hysteresis) is: ${fncmd}"
+                        // TODO - clarify!
                     }
                     break
                 case 0x0E :    // (14) BRT-100 Battery # 0x020e # battery percentage (updated every 4 hours )
@@ -414,10 +423,9 @@ def parse(String description) {
                     break
                 case 0x1A :    // (26) AVATTO setpoint lower limit
                     if (getModelGroup() in ['AVATTO']) {
-                        device.updateSetting("minTemp", fncmd)
+                        device.updateSetting("minTemp", [value: fncmd , type:"number"])
                     }
                     if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
-                    // TODO - update the minTemp preference !
                     break
                 case 0x1B :    // (27) temperature calibration/correction (offset in degrees) for AVATTO, Moes and Saswell; x5hTempCorrection BEOK
                     processTuyaCalibration( dp, fncmd )
@@ -472,12 +480,12 @@ def parse(String description) {
                     }
                     break
                 case 0x66 :     // (102) min temperature limit; also LIDL EcoTemp; x5hProtectionTempLimit BEOK (default 35)
-                    if (getModelGroup() in ['BEOK']) {    //  aka 'temperature ceiling';
-                        if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
-                        device.updateSetting("tempCeiling", fncmd)    //
+                    if (getModelGroup() in ['BEOK']) {    //  aka 'temperature ceiling'; aka protection temperature limit
+                        if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${(fncmd/10) as int} C (dp=${dp}, fncmd=${fncmd})"
+                        device.updateSetting("tempCeiling", [value: (fncmd/10) as int , type:"number"])    //
                     }
                     else {
-                        if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
+                        if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit (UNPROCESSED) is: ${fncmd}"
                         // TODO - set minTemp for AVATTO and MOES ???
                     }
                     break
@@ -505,7 +513,8 @@ def parse(String description) {
                     }
                     else if (getModelGroup() in ['BEOK']) {
                         if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${fncmd}"
-                        //TODO - check!
+                        def value = safeToInt(fncmd)
+                        device.updateSetting( "brightness",  [value:value.toString(), type:"enum"] )
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
@@ -543,7 +552,7 @@ def parse(String description) {
                 case 0x6C :    // (107)                                             
                     if (getModelGroup() in ['BRT-100']) {  
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6C) Max target temp is: ${fncmd}"        // BRT-100 ( Received value [0, 0, 0, 35] )
-                        device.updateSetting("maxTemp", fncmd)
+                        device.updateSetting("maxTemp", [value: fncmd , type:"number"])
                     }
                     else if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO unknown parameter (107) is: ${fncmd}"      // TODO: check AVATTO usage                                                 
@@ -651,7 +660,7 @@ def processTuyaCalibration( dp, fncmd )
     def temp = fncmd 
     double doubleCalib = temp
     if (getModelGroup() in ['AVATTO'] ){    // (dp=27, fncmd number)
-        device.updateSetting("tempCalibration", temp)
+        device.updateSetting("tempCalibration", [value: temp , type:"decimal"])
         //log.trace "AVATTO calibration"
     }
     if (getModelGroup() in ['BEOK'] ){    // (dp=27, fncmd decimal X.X)
@@ -660,7 +669,7 @@ def processTuyaCalibration( dp, fncmd )
         log.trace "BEOK calibration ${doubleCalib}"
     }
     else  if (getModelGroup() in ['BRT-100'] && dp == 105) { // 0x69
-        device.updateSetting("tempCalibration", temp)
+        device.updateSetting("tempCalibration", [value: temp , type:"decimal"])
         if (settings?.logEnable) log.trace "BRT-100 calibration"
     }
     else {
@@ -1032,7 +1041,7 @@ def setHeatingSetpoint( temperature ) {
         }
         tempDouble = temperature
     }
-    if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", 5);  device.updateSetting("maxTemp", 35)   }
+    if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", [value: 5 , type:"number"]);  device.updateSetting("maxTemp", [value: 35 , type:"number"])   }
     if (tempDouble > settings?.maxTemp.value ) tempDouble = settings?.maxTemp.value
     if (tempDouble < settings?.minTemp.value ) tempDouble = settings?.minTemp.value
     tempDouble = tempDouble.round(1)
@@ -1208,7 +1217,7 @@ def updated() {
     // tempCeiling
     dp = getModelGroup() in ['BEOK'] ? "66" : null
     if (getModelGroup() in ['BEOK'] && dp != null) {    // TODO: tempCeiling for AVATTO and MOES !
-        fncmd = safeToInt( tempCeiling )
+        fncmd = safeToInt( tempCeiling ) * 10
         if (settings?.logEnable) log.trace "${device.displayName} setting tempCeiling to= ${fncmd}"
         cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
     }
@@ -1307,8 +1316,62 @@ def checkDriverVersion() {
         if (txtEnable==true) log.debug "${device.displayName} updating the settings from the current driver version ${state.driverVersion} to the new version ${driverVersionAndTimeStamp()}"
         initializeVars( fullInit = false ) 
         state.driverVersion = driverVersionAndTimeStamp()
+        if (device.currentValue("presence", true) == null) {
+        	sendEvent(name: "presence", value: "unknown") 
+        }
+        
     }
 }
+
+// called when any event was received from the Zigbee device in parse() method..
+def setPresent() {
+    if (device.currentValue("presence", true) != "present") {
+    	sendEvent(name: "presence", value: "present") 
+        runIn( defaultPollingInterval, pollPresence, [overwrite: true])
+    }
+    state.notPresentCounter = 0
+}
+
+// called every 60 minutes from pollPresence()
+def checkIfNotPresent() {
+    if (state.notPresentCounter != null) {
+        state.notPresentCounter = state.notPresentCounter + 1
+        if (state.notPresentCounter >= presenceCountTreshold) {
+            if (device.currentValue("presence", true) != "not present") {
+    	        sendEvent(name: "presence", value: "not present")
+                //state.lastPresenceState = "not present"
+                if (logEnable==true) log.warn "${device.displayName} not present!"
+            }
+            /*            
+            if (!(device.currentValue('powerSource', true) in ['unknown'])) {
+    	        powerSourceEvent("unknown")
+                if (settings?.txtEnable) log.warn "${device.displayName} is not present!"
+            }
+            */
+            /*
+            if (!(device.currentValue('motion', true) in ['inactive', '?'])) {
+                handleMotion(false, isDigital=true)
+                if (settings?.txtEnable) log.warn "${device.displayName} forced motion to '<b>inactive</b>"
+            }
+            if (safeToInt(device.currentValue('battery', true)) != 0) {
+                if (settings?.txtEnable) log.warn "${device.displayName} forced battery to '<b>0 %</b>"
+                sendBatteryEvent( 0, isDigital=true )
+            }
+            */
+        }
+    }
+    else {
+        state.notPresentCounter = 0  
+    }
+}
+
+// check for device offline every 60 minutes
+def pollPresence() {
+    if (logEnable) log.debug "${device.displayName} pollPresence()"
+    checkIfNotPresent()
+    runIn( defaultPollingInterval, pollPresence, [overwrite: true])
+}
+
 
 def logInitializeRezults() {
     log.info "${device.displayName} manufacturer  = ${device.getDataValue("manufacturer")} ModelGroup = ${getModelGroup()}"
@@ -1336,13 +1399,14 @@ void initializeVars( boolean fullInit = true ) {
     //
     if (fullInit == true || state.lastThermostatMode == null) state.lastThermostatMode = "unknown"
     if (fullInit == true || state.lastThermostatOperatingState == null) state.lastThermostatOperatingState = "unknown"
+    if (fullInit == true || state.notPresentCounter == null) state.notPresentCounter = 0
     //
     if (fullInit == true || settings?.logEnable == null) device.updateSetting("logEnable", true)
     if (fullInit == true || settings?.txtEnable == null) device.updateSetting("txtEnable", true)
     if (fullInit == true || settings?.forceManual == null) device.updateSetting("forceManual", false)    
     if (fullInit == true || settings?.resendFailed == null) device.updateSetting("resendFailed", false)    
-    if (fullInit == true || settings?.minTemp == null) device.updateSetting("minTemp", 10)    
-    if (fullInit == true || settings?.maxTemp == null) device.updateSetting("maxTemp", 35)
+    if (fullInit == true || settings?.minTemp == null) device.updateSetting("minTemp", [value: 10 , type:"number"])    
+    if (fullInit == true || settings?.maxTemp == null) device.updateSetting("maxTemp", [value: 35 , type:"number"])
     if (fullInit == true || settings?.tempCeiling == null) device.updateSetting("tempCeiling", 60)
     // tempCeiling
     if (fullInit == true || settings?.tempCalibration == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
@@ -1364,6 +1428,7 @@ def initialize() {
     if (true) "${device.displayName} Initialize()..."
     unschedule()
     initializeVars()
+    runIn( defaultPollingInterval, pollPresence, [overwrite: true])
     setDeviceLimits()
     installed()
     updated()
@@ -1487,14 +1552,7 @@ def childLock( mode ) {
     if (settings?.txtEnable) log.info "${device.displayName} sending child lock mode : ${mode}"
     sendZigbeeCommands( cmds )    
 }
-/*
-@Field static final Map brightnessOptions = [
-    '0': 'off',
-    '1': 'low',
-    '2': 'medium',
-    '3': 'high'
-]
-*/
+
 
 def setBrightness( bri ) {
     ArrayList<String> cmds = []
