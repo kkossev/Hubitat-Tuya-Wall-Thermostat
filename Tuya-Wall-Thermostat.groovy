@@ -31,20 +31,21 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
- * ver. 1.2.6 2022-10-14 kossev  - (dev. branch) - brightness control bug fix; scientific representation bug fix; BEOK time sync workaround?; 
+ * ver. 1.2.6 2022-10-14 kossev  - (dev. branch) - brightness control bug fix; scientific representation bug fix; BEOK time sync workaround?; round() bug fix;
  *
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/14 6:42 AM"}
+def timeStamp() {"2022/10/14 7:29 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
 import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubAction
 import hubitat.device.Protocol
+import java.text.DecimalFormat
 import groovy.time.TimeCategory
 
 @Field static final Boolean debug = false
@@ -593,7 +594,7 @@ def parse(String description) {
 
 def processTuyaHeatSetpointReport( fncmd )
 {                        
-    def setpointValue
+    double setpointValue
     def model = getModelGroup()
     if (getModelGroup() in ['AVATTO', 'MOES', 'BRT-100' ]) {
         setpointValue = fncmd as int
@@ -604,6 +605,7 @@ def processTuyaHeatSetpointReport( fncmd )
     else {
         setpointValue = fncmd
     }
+    setpointValue = setpointValue.round(1)
     if (settings?.txtEnable) log.info "${device.displayName} heatingSetpoint is: ${setpointValue}"+"\u00B0"+"C"
     sendEvent(name: "heatingSetpoint", value: setpointValue, unit: "\u00B0"+"C", displayed: true)
     sendEvent(name: "thermostatSetpoint", value: setpointValue, unit: "\u00B0"+"C", displayed: false)        // Google Home compatibility
@@ -1005,7 +1007,7 @@ def setThermostatSetpoint( temperature ) {
     setHeatingSetpoint( temperature )
 }
 
-import java.text.DecimalFormat;
+
 
 //  ThermostatHeatingSetpoint command
 //  sends TuyaCommand and checks after 4 seconds
@@ -1033,7 +1035,7 @@ def setHeatingSetpoint( temperature ) {
     if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", 5);  device.updateSetting("maxTemp", 35)   }
     if (tempDouble > settings?.maxTemp.value ) tempDouble = settings?.maxTemp.value
     if (tempDouble < settings?.minTemp.value ) tempDouble = settings?.minTemp.value
-    tempDouble = tempDouble.Round(1)
+    tempDouble = tempDouble.round(1)
     sendEvent(name: "heatingSetpoint", value: tempDouble, unit: "\u00B0"+"C", displayed: true)
     sendEvent(name: "thermostatSetpoint", value: tempDouble, unit: "\u00B0"+"C", displayed: true)
     updateDataValue("lastRunningMode", "heat")
@@ -1145,10 +1147,10 @@ def installed() {
     state.lastThermostatMode = "heat"
     sendThermostatOperatingStateEvent( "idle" )
     sendEvent(name: "thermostatOperatingState", value: "idle", isStateChange: true)
-    sendEvent(name: "thermostatSetpoint", value:  20, unit: "\u00B0"+"C", isStateChange: true)        // Google Home compatibility
-    sendEvent(name: "heatingSetpoint", value: 20, unit: "\u00B0"+"C", isStateChange: true)
-    sendEvent(name: "coolingSetpoint", value: 30, unit: "\u00B0"+"C", isStateChange: true)
-    sendEvent(name: "temperature", value: 22, unit: "\u00B0"+"C", isStateChange: true)    
+    sendEvent(name: "thermostatSetpoint", value:  20.0, unit: "\u00B0"+"C", isStateChange: true)        // Google Home compatibility
+    sendEvent(name: "heatingSetpoint", value: 20.0, unit: "\u00B0"+"C", isStateChange: true)
+    sendEvent(name: "coolingSetpoint", value: 30.0, unit: "\u00B0"+"C", isStateChange: true)
+    sendEvent(name: "temperature", value: 22.0, unit: "\u00B0"+"C", isStateChange: true)    
     updateDataValue("lastRunningMode", "heat")	
 
     state.mode = ""
