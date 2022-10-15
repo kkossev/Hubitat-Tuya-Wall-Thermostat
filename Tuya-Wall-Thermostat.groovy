@@ -31,14 +31,14 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
- * ver. 1.2.6 2022-10-14 kossev  - (dev. branch) - brightness control bug fix; scientific representation bug fix; BEOK time sync workaround?; round() bug fix; parameters number/decimal fixes;
+ * ver. 1.2.6 2022-10-15 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness nug fix?
  *
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/14 7:39 PM"}
+def timeStamp() {"2022/10/15 12:07 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -78,7 +78,7 @@ metadata {
         }
         command "initialize", [[name: "Initialize the thermostat after switching drivers.  \n\r   ***** Will load device default values! *****" ]]
         command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]
-        command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: ['off','low', 'medium', 'high'], description: "Set LCD brightness for BEOK thermostats"] ]
+        command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: brightnessOptions, description: "Set LCD brightness for BEOK thermostats"] ]
         
         command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
         
@@ -473,7 +473,7 @@ def parse(String description) {
                     else if (getModelGroup() in ['BEOK']) {
                         double floatDif = (fncmd as double) / 10.0
                         device.updateSetting("hysteresis", [value:floatDif, type:"decimal"])
-                        if (settings?.txtEnable) log.info "${device.displayName} (0x65) temperature difference (hysteresis) is: ${floatDif}"
+                        if (settings?.txtEnable) log.info "${device.displayName} (0x65) temperature difference (hysteresis) is: ${floatDif} C (${fncmd})"
                     }
                     else {
                         if (settings?.logEnable) log.info "${device.displayName} Thermostat SCHEDULE_1 (0x65) data received (not processed)...  ${fncmd}"
@@ -512,9 +512,8 @@ def parse(String description) {
                         device.updateSetting( "programMode",  [value:value.toString(), type:"enum"] )
                     }
                     else if (getModelGroup() in ['BEOK']) {
-                        if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${fncmd}"
-                        def value = safeToInt(fncmd)
-                        device.updateSetting( "brightness",  [value:value.toString(), type:"enum"] )
+                        if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${(brightnessOptions.find{it.key == fncmd} ?: 'unknown').value} (${fncmd})"
+                        device.updateSetting( "brightness",  [value: fncmd.toString(), type:"enum"] )
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
@@ -666,7 +665,7 @@ def processTuyaCalibration( dp, fncmd )
     if (getModelGroup() in ['BEOK'] ){    // (dp=27, fncmd decimal X.X)
         doubleCalib = safeToDouble(fncmd) / 10.0
         device.updateSetting("tempCalibration", [value:doubleCalib, type:"decimal"])
-        log.trace "BEOK calibration ${doubleCalib}"
+        if (settings?.logEnable) log.trace "BEOK calibration received is: ${doubleCalib}C (${fncmd})"
     }
     else  if (getModelGroup() in ['BRT-100'] && dp == 105) { // 0x69
         device.updateSetting("tempCalibration", [value: temp , type:"decimal"])
@@ -1218,7 +1217,7 @@ def updated() {
     dp = getModelGroup() in ['BEOK'] ? "66" : null
     if (getModelGroup() in ['BEOK'] && dp != null) {    // TODO: tempCeiling for AVATTO and MOES !
         fncmd = safeToInt( tempCeiling ) * 10
-        if (settings?.logEnable) log.trace "${device.displayName} setting tempCeiling to= ${fncmd}"
+        if (settings?.logEnable) log.trace "${device.displayName} setting tempCeiling to ${tempCeiling} (${fncmd})"
         cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
     }
     // programMode
@@ -1232,19 +1231,18 @@ def updated() {
     // sound
     if (getModelGroup() in ['BEOK']) {
         fncmd = settings?.sound == false ? 0 : 1
-        if (settings?.logEnable) log.trace "${device.displayName} setting sound to ${fncmd}"
+        if (settings?.logEnable) log.trace "${device.displayName} setting sound to ${fncmd} (${fncmd==0?'off':'on'})"
         cmds += sendTuyaCommand("07", DP_TYPE_BOOL, zigbee.convertToHexString(fncmd as int, 2))
     }
     // brightness
     if (getModelGroup() in ['BEOK']) {
         if (settings?.brightness != null) {
-            def value = safeToInt(settings?.brightness.value)
-            def str = brightnessOptions.find{it.key == value}.value
+            def key = safeToInt(settings?.brightness)
+            def value = brightnessOptions.find{it.key == key}
             if (value != null) {
-                def dpValHex = zigbee.convertToHexString(value as int, 2)
+                def dpValHex = zigbee.convertToHexString(key as int, 2)
                 cmds += sendTuyaCommand("68", DP_TYPE_ENUM, dpValHex)            
-                if (settings?.logEnable) log.debug "${device.displayName} changing brightness to ${str} ($value)"
-                sendZigbeeCommands( cmds )    
+                if (settings?.logEnable) log.debug "${device.displayName} setting brightness to ${value.value} ($key)"
             }
         }
     }
@@ -1559,15 +1557,12 @@ def setBrightness( bri ) {
     def dp
     if (getModelGroup() in ["BEOK"]) {
         dp = "68"
-        if (bri in ['off','low', 'medium', 'high']) {
-            def value = brightnessOptions.find{it.value == bri}.key        // safeToInt(brightness.value)
-            log.trace "value = ${value}"
-            if (value != null) {
-                def dpValHex = zigbee.convertToHexString(value as int, 2)
-                cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
-                if (settings?.logEnable) log.debug "${device.displayName} changing brightness to ${bri} ($value)"
-                sendZigbeeCommands( cmds )    
-            }
+        def selection = brightnessOptions.find{it.value == bri}
+        if (selection != null) {
+            def dpValHex = zigbee.convertToHexString(selection.key as int, 2)
+            cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
+            if (settings?.logEnable) log.debug "${device.displayName} changing brightness to ${bri} ($selection.key)"
+            sendZigbeeCommands( cmds )    
         }
         else {
             if (settings?.txtEnable) log.warn "${device.displayName} invalid brightness control ${bri}"
