@@ -31,14 +31,14 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
- * ver. 1.2.6 2022-10-15 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness nug fix?
+ * ver. 1.2.6 2022-10-15 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness bug fix? maxTemp bug fix for BEOK; heatingTemp rounded to 0.5 for BEOK
  *
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/15 12:07 PM"}
+def timeStamp() {"2022/10/15 13:28 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -390,7 +390,7 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     }
                     else if (getModelGroup() in ['BEOK']) {
-                        device.updateSetting("maxTemp", [value: (fncmd/10) as int , type:"number"])
+                        device.updateSetting("maxTemp", [value: fncmd as int , type:"number"])
                         if (settings?.txtEnable) log.info "${device.displayName} BEOK Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     }
                     else {
@@ -448,7 +448,12 @@ def parse(String description) {
                     sendThermostatOperatingStateEvent(fncmd==0 ? "heating" : "idle")
                     break
                 case  0x27 :    // (39) AVATTO - RESET; x5hFactoryReset BEOK
-                    if (settings?.txtEnable) log.info "${device.displayName} thermostat reset (${fncmd})"
+                    if (fncmd==0) {
+                        if (settings?.txtEnable) log.info "${device.displayName} thermostat reset state is (${fncmd})"
+                    }
+                    else {
+                        log.warn "${device.displayName} thermostat reset state is (${fncmd}) !!!"
+                    }    
                     break
                 case 0x1E :    // (30) DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_3 0x1E // For Moes device
                 case 0x28 :    // (40) Child Lock    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_2 0x28 ( AVATTO (boolean) ); x5hChildLock BEOK (TODO - check if boolean or enum for BEOK?)
@@ -481,8 +486,8 @@ def parse(String description) {
                     break
                 case 0x66 :     // (102) min temperature limit; also LIDL EcoTemp; x5hProtectionTempLimit BEOK (default 35)
                     if (getModelGroup() in ['BEOK']) {    //  aka 'temperature ceiling'; aka protection temperature limit
-                        if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${(fncmd/10) as int} C (dp=${dp}, fncmd=${fncmd})"
-                        device.updateSetting("tempCeiling", [value: (fncmd/10) as int , type:"number"])    //
+                        if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                        device.updateSetting("tempCeiling", [value: fncmd as int , type:"number"])    // whole number
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit (UNPROCESSED) is: ${fncmd}"
@@ -1025,8 +1030,9 @@ def setHeatingSetpoint( temperature ) {
     double tempDouble
     if (settings?.logEnable) log.trace "setHeatingSetpoint temperature = ${temperature}  as int = ${temperature as int} (previousSetpointt = ${previousSetpoint})"
     if (getModelGroup() in ['BEOK']) {
-        if (settings?.logEnable) log.debug "skipping correction of heating setpoint${temperature} for BEOK!"
+        if (settings?.logEnable) log.debug "0.5 C correction of the heating setpoint${temperature} for BEOK"
         tempDouble = safeToDouble(temperature)
+        tempDouble = Math.round(tempDouble * 2) / 2.0
     }
     else {
         if (temperature != (temperature as int)) {
@@ -1201,22 +1207,29 @@ def updated() {
     }
     // minTemp
     dp = getModelGroup() in ['AVATTO'] ? "1A" : getModelGroup() in ['BRT-100'] ? "6D" : null
-    if (getModelGroup() in ['AVATTO','BRT-100'] && dp != null) {
+    if (getModelGroup() in ['AVATTO','BRT-100'] && dp != null) {    // no min temp for BEOK!
         fncmd = safeToInt( minTemp )
         if (settings?.logEnable) log.trace "${device.displayName} setting minTemp to= ${fncmd}"
         cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
     }
     // maxTemp
-    dp = getModelGroup() in ['AVATTO'] ? "13" : getModelGroup() in ['BRT-100'] ? "6C" : null
-    if (getModelGroup() in ['AVATTO','BRT-100'] && dp != null) {
+    dp = getModelGroup() in ['AVATTO', 'BEOK'] ? "13" : getModelGroup() in ['BRT-100'] ? "6C" : null
+    if (dp != null && getModelGroup() in ['AVATTO','BRT-100']) {
         fncmd = safeToInt( maxTemp )
         if (settings?.logEnable) log.trace "${device.displayName} setting maxTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+    }
+    else if (dp != null && getModelGroup() in ['BEOK']) {
+        fncmd = safeToInt( maxTemp )
+        if (fncmd > 60 ) fncmd = 60
+        fncmd = fncmd * 10
+        if (settings?.logEnable) log.trace "${device.displayName} SKIPPING sending BEOK maxTemp  ${fncmd/10} (${fncmd})"
+        // changes the heating set point !!!
     }
     // tempCeiling
     dp = getModelGroup() in ['BEOK'] ? "66" : null
     if (getModelGroup() in ['BEOK'] && dp != null) {    // TODO: tempCeiling for AVATTO and MOES !
-        fncmd = safeToInt( tempCeiling ) * 10
+        fncmd = safeToInt( tempCeiling ) // whole number!
         if (settings?.logEnable) log.trace "${device.displayName} setting tempCeiling to ${tempCeiling} (${fncmd})"
         cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
     }
@@ -1405,8 +1418,7 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || settings?.resendFailed == null) device.updateSetting("resendFailed", false)    
     if (fullInit == true || settings?.minTemp == null) device.updateSetting("minTemp", [value: 10 , type:"number"])    
     if (fullInit == true || settings?.maxTemp == null) device.updateSetting("maxTemp", [value: 35 , type:"number"])
-    if (fullInit == true || settings?.tempCeiling == null) device.updateSetting("tempCeiling", 60)
-    // tempCeiling
+    if (fullInit == true || settings?.tempCeiling == null) device.updateSetting("tempCeiling", 35)
     if (fullInit == true || settings?.tempCalibration == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
     if (fullInit == true || settings?.hysteresis == null) device.updateSetting("hysteresis", [value:1.0, type:"decimal"])
     if (fullInit == true || settings?.sound == null) device.updateSetting("sound", false)    
@@ -1435,7 +1447,7 @@ def initialize() {
 
 def setDeviceLimits() { // for google and amazon compatability
     sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "°C", isStateChange: true, displayed: false)
-	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 28, unit: "°C", isStateChange: true, displayed: false)
+	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true, displayed: false)
     updateDataValue("lastRunningMode", "heat")
 	log.trace "setDeviceLimits - device max/min set"
 }	
