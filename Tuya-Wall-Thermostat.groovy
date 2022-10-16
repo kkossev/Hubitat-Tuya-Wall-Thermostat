@@ -32,13 +32,13 @@
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
  * ver. 1.2.6 2022-10-16 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness bug fix? maxTemp bug fix for BEOK; heatingTemp rounded to 0.5 for BEOK
- *                                  setBrightness static constraints
+ *                                  setBrightness static constraints; brightnessOptions key as string;
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/16 10:19 AM"}
+def timeStamp() {"2022/10/16 10:46 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -108,7 +108,7 @@ metadata {
             input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 0.5 .. 5.0 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
             if (getModelGroup() in ['BEOK']) {
                 input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>temperature limit parameter (unknown functionality) ></i>", defaultValue: 35, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
-                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness control</i>", defaultValue: 3, options: brightnessOptions)
+                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness control</i>", defaultValue: 3, options: getBrightnessOptions())
             }
             if (getModelGroup() in ['AVATTO'])  {
                 input (name: "programMode", type: "enum", title: "<b>Program Mode</b> (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
@@ -517,7 +517,7 @@ def parse(String description) {
                         device.updateSetting( "programMode",  [value:value.toString(), type:"enum"] )
                     }
                     else if (getModelGroup() in ['BEOK']) {
-                        if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${(brightnessOptions.find{it.key == fncmd} ?: 'unknown').value} (${fncmd})"
+                        if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${(brightnessOptions.find{it.key == fncmd.toString()} ?: 'unknown').value} (${fncmd})"
                         device.updateSetting( "brightness",  [value: fncmd.toString(), type:"enum"] )
                     }
                     else {
@@ -1418,7 +1418,7 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || settings?.resendFailed == null) device.updateSetting("resendFailed", false)    
     if (fullInit == true || settings?.minTemp == null) device.updateSetting("minTemp", [value: 10 , type:"number"])    
     if (fullInit == true || settings?.maxTemp == null) device.updateSetting("maxTemp", [value: 35 , type:"number"])
-    if (fullInit == true || settings?.tempCeiling == null) device.updateSetting("tempCeiling", 35)
+    if (fullInit == true || settings?.tempCeiling == null) device.updateSetting("tempCeiling", [value: 35 , type:"number"])
     if (fullInit == true || settings?.tempCalibration == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
     if (fullInit == true || settings?.hysteresis == null) device.updateSetting("hysteresis", [value:1.0, type:"decimal"])
     if (fullInit == true || settings?.sound == null) device.updateSetting("sound", false)    
