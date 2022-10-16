@@ -31,14 +31,14 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
- * ver. 1.2.6 2022-10-15 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness bug fix? maxTemp bug fix for BEOK; heatingTemp rounded to 0.5 for BEOK
- *
+ * ver. 1.2.6 2022-10-16 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness bug fix? maxTemp bug fix for BEOK; heatingTemp rounded to 0.5 for BEOK
+ *                                  setBrightness static constraints
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/15 13:28 PM"}
+def timeStamp() {"2022/10/16 10:19 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -78,7 +78,7 @@ metadata {
         }
         command "initialize", [[name: "Initialize the thermostat after switching drivers.  \n\r   ***** Will load device default values! *****" ]]
         command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]
-        command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: brightnessOptions, description: "Set LCD brightness for BEOK thermostats"] ]
+        command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: ["off", "low", "medium", "high"], description: "Set LCD brightness for BEOK thermostats"] ]
         
         command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
         
