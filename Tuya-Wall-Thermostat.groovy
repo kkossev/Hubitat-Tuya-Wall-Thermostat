@@ -32,13 +32,13 @@
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
  * ver. 1.2.6 2022-10-16 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness bug fix? maxTemp bug fix for BEOK; heatingTemp rounded to 0.5 for BEOK
- *                                  setBrightness static constraints; brightnessOptions key as string;
+ *                                  setBrightness static constraints; brightnessOptions key as string; isBEOK(); BEOK brightness defaultValue: '3'
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/16 10:46 AM"}
+def timeStamp() {"2022/10/16 7:07 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -103,17 +103,17 @@ metadata {
             input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
             input (name: "minTemp", type: "number", title: "<b>Minimim Temperature</b>", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "0..60")
             input (name: "maxTemp", type: "number", title: "<b>Maximum Temperature</b>", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "35..95")
-            input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
+            input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect":"Auto detect", "AVATTO":"AVATTO", "MOES":"MOES", "BEOK":"BEOK", "MODEL3":"MODEL3", "BRT-100":"BRT-100"], defaultValue: "Auto detect", required: false)        
             input (name: "tempCalibration", type: "decimal", title: "<b>Temperature Calibration</b>", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
             input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 0.5 .. 5.0 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
-            if (getModelGroup() in ['BEOK']) {
+            if (isBEOK()) {
                 input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>temperature limit parameter (unknown functionality) ></i>", defaultValue: 35, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
-                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness control</i>", defaultValue: 3, options: getBrightnessOptions())
+                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness control</i>", defaultValue: '3', options: getBrightnessOptions())
             }
             if (getModelGroup() in ['AVATTO'])  {
                 input (name: "programMode", type: "enum", title: "<b>Program Mode</b> (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
             }
-            if (getModelGroup() in ['BEOK'])  {
+            if (isBEOK())  {
                 input (name: "sound", type: "bool", title: "<b>Disable/Enable sound</b>", description: "<i>Disable/Enable sound</i>", defaultValue: true)
             }
         }
@@ -132,10 +132,10 @@ metadata {
     '_TZE200_zion52ef'  : 'TEST3',       // TRV MOES => fn = "0001 > off:  dp = "0204"  data = "02" // off; heat:  dp = "0204"  data = "01" // on; auto: n/a !; setHeatingSetpoint(preciseDegrees):   fn = "00" SP = preciseDegrees *10; dp = "1002"
     '_TZE200_c88teujp'  : 'TEST3',       // TRV "SEA-TR", "Saswell", model "SEA801" (to be tested)
     '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
-    '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
     ''                  : 'UNKNOWN'      // 
 ]
 
+def isBEOK() { return device.getDataValue('manufacturer') in ['_TZE200_2ekuz3dz'] }
 private PROGRAM_MODE_VALUE(mode) { mode == "off" ? 0 : mode ==  "Mon-Fri" ? 1 : mode == "Mon-Sat" ? 2 : mode == "Mon-Sun" ? 3 : null }
 private PROGRAM_MODE_NAME(value) { value == 0 ? "off" : value == 1 ? "Mon-Fri" : value == 2 ? "Mon-Sat" : value == 3 ? "Mon-Sun" : null }
 
@@ -144,7 +144,6 @@ private PROGRAM_MODE_NAME(value) { value == 0 ? "off" : value == 1 ? "Mon-Fri" :
 @Field static final Integer defaultPollingInterval = 3600
 @Field static final Integer MaxRetries = 3
                                 
-// KK TODO !
 private getCLUSTER_TUYA()       { 0xEF00 }
 private getSETDATA()            { 0x00 }
 private getSETTIME()            { 0x24 }
@@ -940,19 +939,18 @@ def sendTuyaThermostatMode( mode ) {
             }
             break
         case "emergency heat" :
-            state.mode = "emergency heat"
             if (model in ['BRT-100']) {    // BRT-100
+                state.mode = "emergency heat"
                 dp = "04"                            
                 fn = "01"
             }
-            else {    // all other models    // not tested!
-                dp = "04"                            
-                fn = "01"    // not tested !
+            else {    // all other models do not support "emergency heat" !
+                if (settings?.txtEnable) log.warn "${device.displayName} 'emergency heat' mode is not supported by this device"
+                return null
             }       
             break
         case "cool" :
-            state.mode = "cool"
-            log.warn "Unsupported mode ${mode}"
+            if (settings?.txtEnable) log.warn "${device.displayName} 'cool' mode is not supported by this device"
             return null
             break
         default :
@@ -1249,9 +1247,11 @@ def updated() {
     }
     // brightness
     if (getModelGroup() in ['BEOK']) {
+        log.trace "settings?.brightness = ${settings?.brightness}"
         if (settings?.brightness != null) {
             def key = safeToInt(settings?.brightness)
-            def value = brightnessOptions.find{it.key == key}
+            def value = brightnessOptions.find{it.key == key.toString()}
+            log.trace "key=${key} value=${value}"
             if (value != null) {
                 def dpValHex = zigbee.convertToHexString(key as int, 2)
                 cmds += sendTuyaCommand("68", DP_TYPE_ENUM, dpValHex)            
@@ -1277,9 +1277,13 @@ def refresh() {
             cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))   
             sendZigbeeCommands( cmds ) 
         */
-        case 'AVATTO' :
+        case 'AVATTO' :  // wakes up AVATTO - LCD display goes to normal brightness
             fncmd = 0
             cmds += sendTuyaCommand("27", DP_TYPE_ENUM, zigbee.convertToHexString(fncmd as int, 8))
+            break
+        case 'BEOK' :    // does nothing 
+            fncmd = 0
+            cmds += sendTuyaCommand("27", DP_TYPE_ENUM, zigbee.convertToHexString(fncmd as int, 2))
             break
         default :
             cmds += zigbee.readAttribute(0 , 0 )
@@ -1422,7 +1426,7 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || settings?.tempCalibration == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
     if (fullInit == true || settings?.hysteresis == null) device.updateSetting("hysteresis", [value:1.0, type:"decimal"])
     if (fullInit == true || settings?.sound == null) device.updateSetting("sound", false)    
-    if (fullInit == true || settings?.brightness == null) device.updateSetting("brightness", [value:3, type:"enum"])
+    if (fullInit == true || settings?.brightness == null) device.updateSetting("brightness", [value:"3", type:"enum"])
 
     
     //
@@ -1652,7 +1656,7 @@ def zTest( dpCommand, dpValue, dpTypeString ) {
 
 def test() {
     
-
+device.updateSetting("brightness", [value:"3", type:"enum"])
 
 }
     
