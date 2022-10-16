@@ -29,18 +29,23 @@
  *                                  Refresh command wakes up the display';  Google Home compatibility
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
+ * ver. 1.2.5 2022-10-08 kkossev  - BEOK: added sound on/off, tempCalibration, hysteresis, tempCeiling, setBrightness, 0.5 degrees heatingSetpoint (BEOK only); bug fixes for BEOK: Child lock, thermostatMode, operatingState
+ * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
  *
  *
 */
 
-def version() { "1.2.4" }
-def timeStamp() {"2022/09/28 10:11 PM"}
+def version() { "1.2.6" }
+def timeStamp() {"2022/10/16 10:08 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
 import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubAction
 import hubitat.device.Protocol
+import java.text.DecimalFormat
+import groovy.time.TimeCategory
+
 
 @Field static final Boolean debug = false
 
@@ -57,19 +62,24 @@ metadata {
         capability "ThermostatSetpoint"
         capability "ThermostatMode"
         capability "Battery"                    // BRT-100
+        capability "Presence Sensor"
+        
         
         attribute "childLock", "enum", ["off", "on"]
 
         if (debug == true) {
-            command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
             command "zTest", [
                 [name:"dpCommand", type: "STRING", description: "Tuya DP Command", constraints: ["STRING"]],
                 [name:"dpValue",   type: "STRING", description: "Tuya DP value", constraints: ["STRING"]],
                 [name:"dpType",    type: "ENUM",   constraints: ["DP_TYPE_VALUE", "DP_TYPE_BOOL", "DP_TYPE_ENUM"], description: "DP data type"] 
             ]
+            command "test"
         }
         command "initialize", [[name: "Initialize the thermostat after switching drivers.  \n\r   ***** Will load device default values! *****" ]]
-        command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]        
+        command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]
+        command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: ["off", "low", "medium", "high"], description: "Set LCD brightness for BEOK thermostats"] ]
+        
+        command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
         
         // (AVATTO)
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_ye5jkfsb",  deviceJoinName: "AVATTO Wall Thermostat" // ME81AH 
@@ -90,13 +100,20 @@ metadata {
             input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
             input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes into schedule mode, then it automatically reverts back to manual mode</i>", defaultValue: false)
             input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
-            input (name: "minTemp", type: "number", title: "Minimim Temperature", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "5.0..20.0")
-            input (name: "maxTemp", type: "number", title: "Maximum Temperature", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 40, range: "28.0..90.0")
-            input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect", "AVATTO", "MOES", "BEOK", "MODEL3", "BRT-100"], defaultValue: "Auto detect", required: false)        
-            input (name: "tempCalibration", type: "number", title: "Temperature Calibration", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0, range: "-9.0..9.0")
-            input (name: "hysteresis", type: "number", title: "Hysteresis", description: "<i>Adjust switching differential range: 1..5 C</i>", defaultValue: 1, range: "1.0..5.0")        // not available for BRT-100 !
+            input (name: "minTemp", type: "number", title: "<b>Minimim Temperature</b>", description: "<i>The Minimim temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "0..60")
+            input (name: "maxTemp", type: "number", title: "<b>Maximum Temperature</b>", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "35..95")
+            input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect":"Auto detect", "AVATTO":"AVATTO", "MOES":"MOES", "BEOK":"BEOK", "MODEL3":"MODEL3", "BRT-100":"BRT-100"], defaultValue: "Auto detect", required: false)        
+            input (name: "tempCalibration", type: "decimal", title: "<b>Temperature Calibration</b>", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
+            input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 0.5 .. 5.0 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
+            if (isBEOK()) {
+                input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>temperature limit parameter (unknown functionality) ></i>", defaultValue: 35, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
+                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness control</i>", defaultValue: '3', options:['0':'off', '1':'low', '2':'medium', '3':'high'])
+            }
             if (getModelGroup() in ['AVATTO'])  {
-                input (name: "programMode", type: "enum", title: "Program Mode (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
+                input (name: "programMode", type: "enum", title: "<b>Program Mode</b> (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
+            }
+            if (isBEOK())  {
+               input (name: "sound", type: "bool", title: "<b>Disable/Enable sound</b>", description: "<i>Disable/Enable sound</i>", defaultValue: true)
             }
         }
     }
@@ -114,17 +131,45 @@ metadata {
     '_TZE200_zion52ef'  : 'TEST3',       // TRV MOES => fn = "0001 > off:  dp = "0204"  data = "02" // off; heat:  dp = "0204"  data = "01" // on; auto: n/a !; setHeatingSetpoint(preciseDegrees):   fn = "00" SP = preciseDegrees *10; dp = "1002"
     '_TZE200_c88teujp'  : 'TEST3',       // TRV "SEA-TR", "Saswell", model "SEA801" (to be tested)
     '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
-    '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
     ''                  : 'UNKNOWN'      // 
+]
+
+def isBEOK() { return device.getDataValue('manufacturer') in ['_TZE200_2ekuz3dz'] }
+@Field static final Map brightnessOptions = [
+    '0' : 'off',
+    '1' : 'low',
+    '2' : 'medium',
+    '3' : 'high'
+]
+private Map getBrightnessOptions() {
+    return brightnessOptions
+}
+private BRIGHTNES_NAME(value) { value == 0 ? "off" : value == 1 ? "low" : value == 2 ? "low" : value == 3 ? "high" : null }
+private BRIGHTNES_KEY(value) { value == "off" ? 0 : value ==  "low" ? 1 : value == "low" ? 2 : value == "high" ? 3 : null }
+
+
+
+@Field static final Map faultOptions = [
+    '0' : 'none',
+    '1' : 'e1',
+    '2' : 'e2',
+    '3' : 'e3'
+]
+
+@Field static final Map sensorOptions = [    // BEOK - only in and out; AVATTO + both
+    '0' : 'in',
+    '1' : 'out',
+    '2' : 'both'
 ]
 
 private PROGRAM_MODE_VALUE(mode) { mode == "off" ? 0 : mode ==  "Mon-Fri" ? 1 : mode == "Mon-Sat" ? 2 : mode == "Mon-Sun" ? 3 : null }
 private PROGRAM_MODE_NAME(value) { value == 0 ? "off" : value == 1 ? "Mon-Fri" : value == 2 ? "Mon-Sat" : value == 3 ? "Mon-Sun" : null }
 
 
+@Field static final Integer presenceCountTreshold = 3
+@Field static final Integer defaultPollingInterval = 3600
 @Field static final Integer MaxRetries = 3
                                 
-// KK TODO !
 private getCLUSTER_TUYA()       { 0xEF00 }
 private getSETDATA()            { 0x00 }
 private getSETTIME()            { 0x24 }
@@ -151,20 +196,40 @@ private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
 def parse(String description) {
     checkDriverVersion()
     if (state.rxCounter != null) state.rxCounter = state.rxCounter + 1
+    setPresent()
     //if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
         Map descMap = zigbee.parseDescriptionAsMap(description)
         if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "24") {        //getSETTIME
+            // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)	local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
+            // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).                 // Y2K = 946684800 
             if (settings?.logEnable) log.debug "${device.displayName} time synchronization request from device, descMap = ${descMap}"
             def offset = 0
+            def offsetHours = 0
+            Calendar cal=Calendar.getInstance();    //it return same time as new Date()
+            def hour = cal.get(Calendar.HOUR_OF_DAY)
             try {
-                offset = location.getTimeZone().getOffset(new Date().getTime())
-                //if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset}"
+                offset = location.getTimeZone().getOffset(new Date().getTime()) 
+                offsetHours = (offset / 3600000) as int
+                if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset} (${offsetHours} hours), current hour is ${hour} h"
             } catch(e) {
                 log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. Setting timezone offset to zero"
             }
-            def cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
-            // log.trace "${device.displayName} now is: ${now()}"  // KK TODO - converto to Date/Time string!        
+            //
+            def cmds
+            if (isBEOK()) {
+                // TODO - do NOT synchronize the clock between 00:00 and 09:00 local time !!
+                if (hour >= 8) {
+                    cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)((now() - 3600000L * (8-offsetHours))/1000),8) +  zigbee.convertToHexString((int)((now() + 3600000L * 8) / 1000), 8))    // works OK between 8 and 24 h
+                }
+                else {
+                    if (settings?.logEnable) log.debug "${device.displayName} SKIPPED time synchronization (current hour is ${hour} h)"
+                    return null
+                }
+            }
+            else {
+                cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
+            }
             if (settings?.logEnable) log.debug "${device.displayName} sending time data : ${cmds}"
             cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
             if (state.txCounter != null) state.txCounter = state.txCounter + 1
@@ -182,13 +247,12 @@ def parse(String description) {
             }
             
         } else if ((descMap?.clusterInt==CLUSTER_TUYA) && (descMap?.command == "01" || descMap?.command == "02")) {
-            //if (descMap?.command == "02") { if (settings?.logEnable) log.warn "command == 02 !"  }   
             def transid = zigbee.convertHexToInt(descMap?.data[1])           // "transid" is just a "counter", a response will have the same transid as the command
             def dp = zigbee.convertHexToInt(descMap?.data[2])                // "dp" field describes the action/message of a command frame
             def dp_id = zigbee.convertHexToInt(descMap?.data[3])             // "dp_identifier" is device dependant
             def fncmd = getTuyaAttributeValue(descMap?.data)                 // 
             if (dp == state.old_dp && fncmd == state.old_fncmd) {
-                if (settings?.logEnable) log.warn "(duplicate) transid=${transid} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
+                if (settings?.logEnable) log.debug "(duplicate) transid=${transid} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
                 if ( state.duplicateCounter != null ) state.duplicateCounter = state.duplicateCounter +1
                 return
             }
@@ -201,9 +265,7 @@ def parse(String description) {
                     if (getModelGroup() in ['BRT-100', 'TEST2']) {
                         processBRT100Presets( dp, fncmd )                       // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
                     }
-                    else {    // AVATTO switch (boolean) // state
-                        /* version 1.0.4 */
-                        //def mode = (fncmd == 0) ? "off" : "heat"
+                    else {    // AVATTO switch (boolean) // state; BEOK x5hState
                         def mode = (fncmd == 0) ? "off" : state.lastThermostatMode    // version 1.2.3
                         if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode (switch state) reported is: ${mode} (dp=${dp}, fncmd=${fncmd})"}
                         else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode (switch state) reported is: ${mode}"}
@@ -227,27 +289,57 @@ def parse(String description) {
                         processTuyaHeatSetpointReport( fncmd )              // target temp, in degrees (int!)
                         break
                     }
-                    else {    // AVATTO : mode (enum) 'manual', 'program'
+                    else {    // AVATTO : mode (enum) 'manual', 'program'; BEOK x5hMode
                         // DP_IDENTIFIER_THERMOSTAT_MODE_2 0x02 // mode for Moe device used with DP_TYPE_ENUM
-                        if (settings?.logEnable) log.trace "device current mode = ${device.currentState('thermostatMode').value}"
+                        if (settings?.logEnable) log.trace "device current mode was ${device.currentState('thermostatMode').value}"
                         if (device.currentState("thermostatMode").value == "off") {
                             if (settings?.logEnable) log.warn "ignoring 0x02 command in off mode"
                             sendEvent(name: "thermostatOperatingState", value: "idle")
                             break    // ignore 0x02 command if thermostat was switched off !!
                         }
                         else {
-                            // continue below.. break statement is missing intentionaly!
-                            if (settings?.logEnable) log.trace "...continue in mode ${device.currentState('thermostatMode').value}..."
+                            if (isBEOK())  {
+                                def mode
+                                if (fncmd != 0) {     // BEOK: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
+                                    mode = "auto"    // scheduled
+                                    if (settings?.forceManual == true) {
+                                        if (settings?.txtEnable) log.warn "${device.displayName} 'Force Manual Mode' preference option is enabled, switching back to heat mode!"
+                                        setManualMode()
+                                    }
+                                } 
+                                else {
+                                    mode = "heat"    // manual
+                                }
+                                log.trace "BEOK mode = ${mode}"                        
+                                if (settings?.logEnable) {log.info "${device.displayName} BEOK Thermostat mode reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
+                                else if (settings?.txtEnable) {log.info "${device.displayName} BEOK Thermostat mode reported is: ${mode}"}
+                                sendEvent(name: "thermostatMode", value: mode, displayed: true)    // BEOK
+                                state.lastThermostatMode = mode 
+                                break    // no more processing for BEOK!
+                            }
+                            else {    // continue below for AVATTO and other types .. break statement is missing intentionaly!
+                                if (settings?.logEnable) log.trace "...continue in mode ${device.currentState('thermostatMode').value}..."
+                            }
                         }
                     }
-                case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // working status
+                case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // BEOK x5hWorkingStatus (operatingState) !
                     if (settings?.logEnable) log.trace "processing command dp=${dp} fncmd=${fncmd}"
                     // TODO - use processTuyaModes3( dp, fncmd )
-                    if (descMap?.data.size() <= 7) {
+                    if (isBEOK()) { // thermostatMode for BEOK
+                        if (fncmd == 1) {
+                            sendThermostatOperatingStateEvent("heating")
+                        }
+                        else {    // 
+                            sendThermostatOperatingStateEvent("idle")
+                        }
+                        if (settings?.logEnable) {log.info "${device.displayName} Thermostat working status (operatingState) reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
+                        else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat working status (operatingState) reported is: ${mode}"}
+                    }
+                    else if (descMap?.data.size() <= 7) { // AVATTO / MOES / BEOK
                         def mode
                         if (!(fncmd == 0)) {        // KK inverted
                             mode = "auto"    // scheduled
-                            //log.trace "forceManual = ${settings?.forceManual}"
+
                             if (settings?.forceManual == true) {
                                 if (settings?.txtEnable) log.warn "${device.displayName} 'Force Manual Mode' preference option is enabled, switching back to heat mode!"
                                 setManualMode()
@@ -258,8 +350,9 @@ def parse(String description) {
                         } else {
                             mode = "heat"    // manual
                         }
-                        if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode (working status) reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
-                        else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode (working status) reported is: ${mode}"}
+                        log.trace "mode = ${mode}"                        
+                        if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
+                        else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: ${mode}"}
                         sendEvent(name: "thermostatMode", value: mode, displayed: true)    // mode was confirmed from the Preset info data...
                         state.lastThermostatMode = mode
                     } 
@@ -276,25 +369,32 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
                     break
                 case 0x07 :    // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving     // sound for X5H thermostat
-                    if (settings?.txtEnable) log.info "${device.displayName} valve starts moving: 0x${fncmd}"    // BRT-100  00-> opening; 01-> closed!
-                    if (fncmd == 00) {
-                        sendThermostatOperatingStateEvent("heating")
-                        //sendEvent(name: "thermostatOperatingState", value: "heating", displayed: true)
+                    if (isBEOK()) {
+                        if (settings?.txtEnable) log.info "${device.displayName} sound is: ${fncmd==0?'off':'on'}"
+                        device.updateSetting( "sound",  [value:(fncmd==0?false:true), type:"bool"] )
                     }
-                    else {    // fncmd == 01
-                        sendThermostatOperatingStateEvent("idle")
-                        //sendEvent(name: "thermostatOperatingState", value: "idle", displayed: true)
+                    else {
+                        if (settings?.txtEnable) log.info "${device.displayName} valve starts moving: 0x${fncmd}"    // BRT-100  00-> opening; 01-> closed!
+                        if (fncmd == 00) {
+                            sendThermostatOperatingStateEvent("heating")
+                        }
+                        else {    // fncmd == 01
+                            sendThermostatOperatingStateEvent("idle")
+                        }
                     }
                     break
                 case 0x08 :    // DP_IDENTIFIER_WINDOW_OPEN2 0x08    // BRT-100
                     if (settings?.txtEnable) log.info "${device.displayName} Open window detection MODE (dp=${dp}) is: ${fncmd}"    //0:function disabled / 1:function enabled
                     break
                 // case 0x09 : // BRT-100 unknown function
-                case 0x0D :    // 0x0D (13) BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D MOES, LIDL
+                case 0x0A :    // (10) BEOK - x5hFrostProtection
+                    if (settings?.txtEnable) log.info "${device.displayName} frost protection is: 0x${fncmd}"
+                    // TODO - update a frost protection parameter for BEOK !
+                    break;
+                case 0x0D :    // (13) BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D MOES, LIDL
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock (dp=${dp}) is: ${fncmd}"    // 0:function disabled / 1:function enabled
                     break
-                case 0x10 :    // (16): Heating setpoint AVATTO
-                    // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_3 0x10         // Heatsetpoint for TRV_MOE mode heat // BRT-100 Rx only?
+                case 0x10 :    // (16): Heating setpoint AVATTO; x5hSetTemp BEOK
                     processTuyaHeatSetpointReport( fncmd )
                     break
                 case 0x11 :    // (17) AVATTO
@@ -310,16 +410,26 @@ def parse(String description) {
                     break
                 case 0x13 :    // (19) Max Temp LIMIT AVATTO MOES, LIDL
                     if (getModelGroup() in ['AVATTO']) {
-                        device.updateSetting("maxTemp", fncmd)    // aka 'temperature ceiling'
+                        device.updateSetting("maxTemp", [value: fncmd as int , type:"number"])
+                        if (settings?.txtEnable) log.info "${device.displayName} AVATTO Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     }
-                    if (settings?.txtEnable) log.info "${device.displayName} Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                    else if (isBEOK()) {
+                        device.updateSetting("maxTemp", [value: fncmd as int , type:"number"])
+                        if (settings?.txtEnable) log.info "${device.displayName} BEOK Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                    }
+                    else {
+                        // TODO - MOES !!
+                        if (settings?.txtEnable) log.info "${device.displayName} ${getModelGroup()} Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                    }
                     break
                 case 0x14 :    //  (20) Dead Zone Temp (hysteresis) MOES, LIDL
                     if (getModelGroup() in ['AVATTO'])  {
                         if (settings?.txtEnable) log.info "${device.displayName} lower limit F is: ${fncmd}"
+                        // TODO - clarify!
                     }
                     else {    // KK TODO - also Valve state report : on=1 / off=0 ?  DP_IDENTIFIER_THERMOSTAT_VALVE 0x14 // Valve
                         if (settings?.txtEnable) log.info "${device.displayName} Dead Zone Temp (hysteresis) is: ${fncmd}"
+                        // TODO - clarify!
                     }
                     break
                 case 0x0E :    // (14) BRT-100 Battery # 0x020e # battery percentage (updated every 4 hours )
@@ -331,22 +441,27 @@ def parse(String description) {
                 case 0x17 :    // (23) temperature scale for AVATTO
                     if (settings?.txtEnable) log.info "${device.displayName} temperature scale is: ${fncmd==0?'C':'F'} (${fncmd})"
                     break
-                case 0x18 :    // (24) : Current (local) temperature
+                case 0x18 :    // (24) : Current (local) temperature; x5hCurrentTemp BEOK
                     if (settings?.logEnable) log.trace "processTuyaTemperatureReport dp_id=${dp_id} <b>dp=${dp}</b> :"
                     processTuyaTemperatureReport( fncmd )
                     break
                 case 0x1A :    // (26) AVATTO setpoint lower limit
                     if (getModelGroup() in ['AVATTO']) {
-                        device.updateSetting("minTemp", fncmd)
+                        device.updateSetting("minTemp", [value: fncmd , type:"number"])
                     }
                     if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
-                    // TODO - update the minTemp preference !
                     break
-                case 0x1B :    // (27) temperature calibration/correction (offset in degrees) for AVATTO, Moes and Saswell
+                case 0x1B :    // (27) temperature calibration/correction (offset in degrees) for AVATTO, Moes and Saswell; x5hTempCorrection BEOK
                     processTuyaCalibration( dp, fncmd )
                     break
                 case 0x1D :    // (29) AVATTO
                     if (settings?.txtEnable) log.info "${device.displayName} current temperature F is: ${fncmd}"
+                    break
+                case 0x1E :    // (30) x5hWeeklyProcedure BEOK
+                    if (settings?.txtEnable) log.info "${device.displayName} weekly procedure is: ${fncmd}"
+                    break
+                case 0x1F :    // (31) x5hWorkingDaySetting BEOK
+                    if (settings?.txtEnable) log.info "${device.displayName} working day setting is: ${fncmd}"
                     break
                 case 0x23 :    // (35) LIDL BatteryVoltage
                     if (settings?.txtEnable) log.info "${device.displayName} BatteryVoltage is: ${fncmd}"
@@ -356,41 +471,62 @@ def parse(String description) {
                     else if (settings?.logEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? 'heating' : 'idle'} (dp=${dp}, fncmd=${fncmd})"}
                     sendThermostatOperatingStateEvent(fncmd==0 ? "heating" : "idle")
                     break
-                case  0x27 :    // (39) AVATTO - RESET
-                    if (settings?.txtEnable) log.info "${device.displayName} thermostat reset (${fncmd})"
+                case  0x27 :    // (39) AVATTO - RESET; x5hFactoryReset BEOK
+                    if (fncmd==0) {
+                        if (settings?.txtEnable) log.info "${device.displayName} thermostat reset state is (${fncmd})"
+                    }
+                    else {
+                        log.warn "${device.displayName} thermostat reset state is (${fncmd}) !!!"
+                    }    
                     break
                 case 0x1E :    // (30) DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_3 0x1E // For Moes device
-                case 0x28 :    // (40) Child Lock    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_2 0x28 ( AVATTO (boolean) )
+                case 0x28 :    // (40) Child Lock    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_2 0x28 ( AVATTO (boolean) ); x5hChildLock BEOK (TODO - check if boolean or enum for BEOK?)
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock is: ${fncmd} (dp=${dp})"
                     sendEvent(name: "childLock", value: (fncmd == 0) ? "off" : "on" )
                     break
-                case 0x2B :    // (43) AVATTO Sensor 0-In 1-Out 2-Both    // KK TODO
+                case 0x2B :    // (43) AVATTO Sensor 0-In 1-Out 2-Both; x5hSensorSelection BEOK
                     if (settings?.txtEnable) log.info "${device.displayName} Sensor is: ${fncmd==0?'In':fncmd==1?'Out':fncmd==2?'In and Out':'UNKNOWN'} (${fncmd})"
+                    // TODO - make it a preference parameter !
                     break
                 case 0x2C :                                                 // temperature calibration (offset in degree)   //DP_IDENTIFIER_THERMOSTAT_CALIBRATION_2 0x2C // Calibration offset used by others
                     processTuyaCalibration( dp, fncmd )
                     break
-                case 0x2D :    // (45) LIDL and AVATTO ErrorStatus (bitmap) e1, e2, e3 // er1: Built-in sensor disconnected or fault with it; Er1: Built-in sensor disconnected or fault with it.
-                    if (settings?.txtEnable) log.info "${device.displayName} error code : ${fncmd}"
+                case 0x2D :    // (45) LIDL and AVATTO ErrorStatus (bitmap) e1, e2, e3 // er1: Built-in sensor disconnected or fault with it; Er1: Built-in sensor disconnected or fault with it.; x5hFaultAlarm BEOK
+                    if (settings?.txtEnable) log.info "${device.displayName} fault alarm error code is: ${fncmd}"
                     break
                 // case 0x62 : // (98) DP_IDENTIFIER_REPORTING_TIME 0x62 (Sensors)
-                case 0x65 :    // (101) AVATTO PID ; also LIDL ComfortTemp
+                case 0x65 :    // (101) AVATTO PID ; also LIDL ComfortTemp; x5hTempDiff BEOK
                     if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"    // Model#1 only !!
                     }
+                    else if (isBEOK()) {
+                        double floatDif = (fncmd as double) / 10.0
+                        device.updateSetting("hysteresis", [value:floatDif, type:"decimal"])
+                        if (settings?.txtEnable) log.info "${device.displayName} (0x65) temperature difference (hysteresis) is: ${floatDif} C (${fncmd})"
+                    }
                     else {
-                        if (settings?.logEnable) log.info "${device.displayName} Thermostat SCHEDULE_1 data received (not processed)..."
+                        if (settings?.logEnable) log.info "${device.displayName} Thermostat SCHEDULE_1 (0x65) data received (not processed)...  ${fncmd}"
                     }
                     break
-                case 0x66 :     // (102) min temperature limit; also LIDL EcoTemp
-                    if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd}"
+                case 0x66 :     // (102) min temperature limit; also LIDL EcoTemp; x5hProtectionTempLimit BEOK (default 35)
+                    if (isBEOK()) {    //  aka 'temperature ceiling'; aka protection temperature limit
+                        if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
+                        device.updateSetting("tempCeiling", [value: fncmd as int , type:"number"])    // whole number
+                    }
+                    else {
+                        if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit (UNPROCESSED) is: ${fncmd}"
+                        // TODO - set minTemp for AVATTO and MOES ???
+                    }
                     break
-                case 0x67 :    // (103) max temperature limit; also LIDL AwaySetting
+                case 0x67 :    // (103) max temperature limit; also LIDL AwaySetting; x5hOutputReverse BEOK
                     if (getModelGroup() in ['BRT-100']) {                      // #0x0267 # Boost heating countdown in second (Received value [0, 0, 1, 44] for 300)
                         if (settings?.txtEnable) log.info "${device.displayName} Boost heating countdown: ${fncmd} seconds"
                     }
                     else if (getModelGroup() in ['AVATTO']) {     // Antifreeze mode ?
                         if (settings?.txtEnable) log.info "${device.displayName} Antifreeze mode is ${fncmd==0?'off':'on'} (${fncmd})"
+                    }
+                    else if (isBEOK()) {
+                        if (settings?.txtEnable) log.info "${device.displayName} output reverse is ${fncmd==0?'off':'on'} (${fncmd})"
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} unknown parameter is: ${fncmd} (dp=${dp}, fncmd=${fncmd}, data=${descMap?.data})"
@@ -398,11 +534,15 @@ def parse(String description) {
                     // KK TODO - could be setpoint for some devices ?
                     // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT_2 0x67 // Heatsetpoint for Moe ?
                     break
-                case 0x68 :     // (104) DP_IDENTIFIER_THERMOSTAT_VALVE_2 0x68 // Valve; also LIDL TempCalibration!
+                case 0x68 :     // (104) DP_IDENTIFIER_THERMOSTAT_VALVE_2 0x68 // Valve; also LIDL TempCalibration!; x5hBackplaneBrightness BEOK
                     if (getModelGroup() in ['AVATTO']) {
                         def value = safeToInt(fncmd)
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO Program Mode (104) received is: ${PROGRAM_MODE_NAME(value)} (${fncmd})"      // AVATTO programm mode 0:0ff 1:Mon-Fri 2:Mon-Sat 3:Mon-Sun    
                         device.updateSetting( "programMode",  [value:value.toString(), type:"enum"] )
+                    }
+                    else if (isBEOK()) {
+                        if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${BRIGHTNES_NAME(fncmd as int)} (${fncmd})"
+                        device.updateSetting( "brightness",  [value: fncmd.toString(), type:"enum"] )
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
@@ -423,7 +563,7 @@ def parse(String description) {
                 case 0x6A :     // (106) DP_IDENTIFIER_THERMOSTAT_MODE_1 0x6A // mode used with DP_TYPE_ENUM    Energy saving mode (Received value 0:off / 1:on)
                     if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} Dead Zone temp (hysteresis) is: ${fncmd}C (dp=${dp}, fncmd=${fncmd})"
-                        device.updateSetting("hysteresis", fncmd)
+                        device.updateSetting("hysteresis", [value:fncmd, type:"decimal"])
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Energy saving mode? (dp=${dp}) is: ${fncmd} data = ${descMap?.data})"    // 0:function disabled / 1:function enabled
@@ -440,7 +580,7 @@ def parse(String description) {
                 case 0x6C :    // (107)                                             
                     if (getModelGroup() in ['BRT-100']) {  
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6C) Max target temp is: ${fncmd}"        // BRT-100 ( Received value [0, 0, 0, 35] )
-                        device.updateSetting("maxTemp", fncmd)
+                        device.updateSetting("maxTemp", [value: fncmd , type:"number"])
                     }
                     else if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO unknown parameter (107) is: ${fncmd}"      // TODO: check AVATTO usage                                                 
@@ -491,36 +631,21 @@ def parse(String description) {
 
 def processTuyaHeatSetpointReport( fncmd )
 {                        
-    def setpointValue
+    double setpointValue
     def model = getModelGroup()
-    switch (model) {
-        case 'AVATTO' :
-            setpointValue = fncmd
-            break
-        case 'MOES' :
-            setpointValue = fncmd
-            break
-        case 'BEOK' :
-            setpointValue = fncmd / 10.0
-            break
-        case 'MODEL3' :
-            setpointValue = fncmd
-            break
-        case 'BRT-100' :
-            setpointValue = fncmd
-            break
-        case 'TEST2' :
-        case 'TEST3' :
-            setpointValue = fncmd / 10.0
-            break
-        case 'UNKNOWN' :
-        default :
-            setpointValue = fncmd
-            break
+    if (getModelGroup() in ['AVATTO', 'MOES', 'BRT-100' ]) {
+        setpointValue = fncmd as int
     }
+    else if (getModelGroup() in ['BEOK', 'TEST3']) {
+            setpointValue = fncmd / 10.0
+    }
+    else {
+        setpointValue = fncmd
+    }
+    setpointValue = setpointValue.round(1)
     if (settings?.txtEnable) log.info "${device.displayName} heatingSetpoint is: ${setpointValue}"+"\u00B0"+"C"
-    sendEvent(name: "heatingSetpoint", value: setpointValue as int, unit: "\u00B0"+"C", displayed: true)
-    sendEvent(name: "thermostatSetpoint", value: setpointValue as int, unit: "\u00B0"+"C", displayed: false)        // Google Home compatibility
+    sendEvent(name: "heatingSetpoint", value: setpointValue, unit: "\u00B0"+"C", displayed: true)
+    sendEvent(name: "thermostatSetpoint", value: setpointValue, unit: "\u00B0"+"C", displayed: false)        // Google Home compatibility
     if (setpointValue == state.setpoint)  {
         state.setpoint = 0
     }                        
@@ -561,14 +686,24 @@ def processTuyaTemperatureReport( fncmd )
 def processTuyaCalibration( dp, fncmd )
 {
     def temp = fncmd 
-    if (getModelGroup() in ['AVATTO'] ){    // (dp=27, fncmd=-1)
-        device.updateSetting("tempCalibration", temp)
+    double doubleCalib = temp
+    if (getModelGroup() in ['AVATTO'] ){    // (dp=27, fncmd number)
+        device.updateSetting("tempCalibration", [value: temp , type:"decimal"])
         //log.trace "AVATTO calibration"
     }
+    if (isBEOK()){    // (dp=27, fncmd decimal X.X)
+        doubleCalib = safeToDouble(fncmd) / 10.0
+        device.updateSetting("tempCalibration", [value:doubleCalib, type:"decimal"])
+        if (settings?.logEnable) log.trace "BEOK calibration received is: ${doubleCalib}C (${fncmd})"
+    }
     else  if (getModelGroup() in ['BRT-100'] && dp == 105) { // 0x69
-        device.updateSetting("tempCalibration", temp)
+        device.updateSetting("tempCalibration", [value: temp , type:"decimal"])
         if (settings?.logEnable) log.trace "BRT-100 calibration"
     }
+    else {
+        if (settings?.logEnable) log.warn "${device.displayName} UNSUPPORTED temperature calibration for modelGroup=${getModelGroup()} : ${temp} (dp=${dp}, fncmd=${fncmd}) "
+    }
+/*    
     else {    // "_TZE200_aoclfnxz"
         if (settings?.logEnable) log.trace "other calibration, getModelGroup() = ${getModelGroup()} dp=${dp} fncmd = ${fncmd}"
         if (temp > 2048) {
@@ -576,7 +711,8 @@ def processTuyaCalibration( dp, fncmd )
         }
         temp = temp / 100        // KK - check !
     }
-    if (settings?.txtEnable) log.info "${device.displayName} temperature calibration (correction) is: ${temp} (dp=${dp}, fncmd=${fncmd}) "
+*/    
+    if (settings?.txtEnable) log.info "${device.displayName} temperature calibration (correction) is: ${doubleCalib} (dp=${dp}, fncmd=${fncmd}) "
 }
 
 def processBRT100Presets( dp, data ) {
@@ -786,7 +922,7 @@ def sendTuyaThermostatMode( mode ) {
             }
             else {    // all other models
                 dp = "04"                            
-                fn = "00"    // not tested !
+                fn = "00"    // not tested! should probably defauilt to DP1 FN=0 ?
             }
             break
         case "heat" :    // manual mode
@@ -828,25 +964,26 @@ def sendTuyaThermostatMode( mode ) {
             }
             break
         case "emergency heat" :
-            state.mode = "emergency heat"
             if (model in ['BRT-100']) {    // BRT-100
+                state.mode = "emergency heat"
                 dp = "04"                            
                 fn = "01"
             }
-            else {    // all other models    // not tested!
-                dp = "04"                            
-                fn = "01"    // not tested !
+            else {    // all other models do not support "emergency heat" !
+                if (settings?.txtEnable) log.warn "${device.displayName} 'emergency heat' mode is not supported by this device"
+                return null
             }       
             break
         case "cool" :
-            state.mode = "cool"
+            if (settings?.txtEnable) log.warn "${device.displayName} 'cool' mode is not supported by this device"
             return null
             break
         default :
             log.warn "Unsupported mode ${mode}"
             return null
     }
-    cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, fn)
+    //cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, fn)
+    cmds += sendTuyaCommand(dp, mode == "off" ? DP_TYPE_BOOL : DP_TYPE_ENUM, fn)
     sendZigbeeCommands( cmds )
 }
 
@@ -870,7 +1007,7 @@ def sendTuyaHeatingSetpoint( temperature ) {
             dp = "10"
             settemp = temperature
             break
-        case 'MOES' :                            // MOES - 0.5 precision? ( and double the setpoint value ? )
+        case 'MOES' :                            // MOES - 0.5 precision? ( and double the setpoint value ? ) TODO !!!
             dp = "10"
             settemp = temperature                // KK check!
             break
@@ -906,32 +1043,42 @@ def setThermostatSetpoint( temperature ) {
     setHeatingSetpoint( temperature )
 }
 
+
+
 //  ThermostatHeatingSetpoint command
 //  sends TuyaCommand and checks after 4 seconds
 //  1°C steps. (0.5°C setting on the TRV itself, rounded for zigbee interface)
 def setHeatingSetpoint( temperature ) {
-    def previousSetpoint = device.currentState('heatingSetpoint').value as int
+    def previousSetpoint = device.currentState('heatingSetpoint', true).value /*as int*/
+    double tempDouble
     if (settings?.logEnable) log.trace "setHeatingSetpoint temperature = ${temperature}  as int = ${temperature as int} (previousSetpointt = ${previousSetpoint})"
-    if (temperature != (temperature as int)) {
-        if (temperature > previousSetpoint) {
-            temperature = (temperature + 0.5 ) as int
-        }
-        else {
-            temperature = temperature as int
-        }
-        
+    if (isBEOK()) {
+        if (settings?.logEnable) log.debug "0.5 C correction of the heating setpoint${temperature} for BEOK"
+        tempDouble = safeToDouble(temperature)
+        tempDouble = Math.round(tempDouble * 2) / 2.0
+    }
+    else {
+        if (temperature != (temperature as int)) {
+            if (temperature > previousSetpoint) {
+                temperature = (temperature + 0.5 ) as int
+            }
+            else {
+                temperature = temperature as int
+            }
         if (settings?.logEnable) log.trace "corrected heating setpoint${temperature}"
-    }  
-    if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", 5);  device.updateSetting("maxTemp", 28)   }
-    if (temperature > settings?.maxTemp.value ) temperature = settings?.maxTemp.value
-    if (temperature < settings?.minTemp.value ) temperature = settings?.minTemp.value
-    
-    sendEvent(name: "heatingSetpoint", value: temperature as int, unit: "\u00B0"+"C", displayed: true)
-    sendEvent(name: "thermostatSetpoint", value: temperature as int, unit: "\u00B0"+"C", displayed: true)
+        }
+        tempDouble = temperature
+    }
+    if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", [value: 5 , type:"number"]);  device.updateSetting("maxTemp", [value: 35 , type:"number"])   }
+    if (tempDouble > settings?.maxTemp.value ) tempDouble = settings?.maxTemp.value
+    if (tempDouble < settings?.minTemp.value ) tempDouble = settings?.minTemp.value
+    tempDouble = tempDouble.round(1)
+    sendEvent(name: "heatingSetpoint", value: tempDouble, unit: "\u00B0"+"C", displayed: true)
+    sendEvent(name: "thermostatSetpoint", value: tempDouble, unit: "\u00B0"+"C", displayed: true)
     updateDataValue("lastRunningMode", "heat")
     
     state.heatingSetPointRetry = 0
-    sendTuyaHeatingSetpoint( temperature )
+    sendTuyaHeatingSetpoint( tempDouble )
 }
 
 
@@ -961,7 +1108,7 @@ def setThermostatFanMode(fanMode) { sendEvent(name: "thermostatFanMode", value: 
 
 def auto() { setThermostatMode("auto") }
 def emergencyHeat() { setThermostatMode("emergency heat") }
-def cool() { setThermostatMode("off") }
+def cool() { setThermostatMode("cool") }
 def fanAuto() { setThermostatFanMode("auto") }
 def fanCirculate() { setThermostatFanMode("circulate") }
 def fanOn() { setThermostatFanMode("on") }
@@ -1037,10 +1184,10 @@ def installed() {
     state.lastThermostatMode = "heat"
     sendThermostatOperatingStateEvent( "idle" )
     sendEvent(name: "thermostatOperatingState", value: "idle", isStateChange: true)
-    sendEvent(name: "thermostatSetpoint", value:  20, unit: "\u00B0"+"C", isStateChange: true)        // Google Home compatibility
-    sendEvent(name: "heatingSetpoint", value: 20, unit: "\u00B0"+"C", isStateChange: true)
-    sendEvent(name: "coolingSetpoint", value: 30, unit: "\u00B0"+"C", isStateChange: true)
-    sendEvent(name: "temperature", value: 22, unit: "\u00B0"+"C", isStateChange: true)    
+    sendEvent(name: "thermostatSetpoint", value:  20.0, unit: "\u00B0"+"C", isStateChange: true)        // Google Home compatibility
+    sendEvent(name: "heatingSetpoint", value: 20.0, unit: "\u00B0"+"C", isStateChange: true)
+    sendEvent(name: "coolingSetpoint", value: 30.0, unit: "\u00B0"+"C", isStateChange: true)
+    sendEvent(name: "temperature", value: 22.0, unit: "\u00B0"+"C", isStateChange: true)    
     updateDataValue("lastRunningMode", "heat")	
 
     state.mode = ""
@@ -1064,35 +1211,78 @@ def updated() {
         unschedule(logsOff)
     }
     def fncmd
-    if (getModelGroup() in ['AVATTO']) {
-        fncmd = safeToInt( tempCalibration )
-        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to= ${fncmd}"
-        cmds += sendTuyaCommand("1B", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
-        fncmd = safeToInt( hysteresis )
-        if (settings?.logEnable) log.trace "${device.displayName} setting hysteresis to= ${fncmd}"
-        cmds += sendTuyaCommand("6A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+    def dp
+    // tempCalibration
+    dp = getModelGroup() in ['AVATTO', 'BEOK'] ? "1B" : getModelGroup() in ['BRT-100'] ? "69" : null
+    if (getModelGroup() in ['AVATTO', 'BEOK', 'BRT-100'] && dp != null) {
+        log.trace "tempCalibration = ${tempCalibration}"
+        fncmd = getModelGroup() in [ 'BEOK'] ? (safeToDouble( tempCalibration )*10) as int : safeToInt( tempCalibration ) 
+        log.trace "fncmd = ${fncmd}"
+        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to ${tempCalibration} (${fncmd})"
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))  
+    }
+    // hysteresis
+    dp = getModelGroup() in ['AVATTO'] ? "6A" : getModelGroup() in ['BEOK'] ? "65" : null
+    if (getModelGroup() in ['AVATTO', 'BEOK']) {
+        fncmd = getModelGroup() in [ 'BEOK'] ? (safeToDouble( hysteresis )*10) as int : safeToInt( hysteresis ) 
+        if (settings?.logEnable) log.trace "${device.displayName} setting hysteresis to ${hysteresis} (${fncmd})"
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+    }
+    // minTemp
+    dp = getModelGroup() in ['AVATTO'] ? "1A" : getModelGroup() in ['BRT-100'] ? "6D" : null
+    if (getModelGroup() in ['AVATTO','BRT-100'] && dp != null) {    // no min temp for BEOK!
         fncmd = safeToInt( minTemp )
         if (settings?.logEnable) log.trace "${device.displayName} setting minTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("1A", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+    }
+    // maxTemp
+    dp = getModelGroup() in ['AVATTO', 'BEOK'] ? "13" : getModelGroup() in ['BRT-100'] ? "6C" : null
+    if (dp != null && getModelGroup() in ['AVATTO','BRT-100']) {
         fncmd = safeToInt( maxTemp )
         if (settings?.logEnable) log.trace "${device.displayName} setting maxTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("13", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+    }
+    else if (dp != null && getModelGroup() in ['BEOK']) {
+        fncmd = safeToInt( maxTemp )
+        if (fncmd > 60 ) fncmd = 60
+        fncmd = fncmd * 10
+        if (settings?.logEnable) log.trace "${device.displayName} SKIPPING sending BEOK maxTemp  ${fncmd/10} (${fncmd})"
+        // changes the heating set point !!!
+    }
+    // tempCeiling
+    dp = getModelGroup() in ['BEOK'] ? "66" : null
+    if (getModelGroup() in ['BEOK'] && dp != null) {    // TODO: tempCeiling for AVATTO and MOES !
+        fncmd = safeToInt( tempCeiling ) // whole number!
+        if (settings?.logEnable) log.trace "${device.displayName} setting tempCeiling to ${tempCeiling} (${fncmd})"
+        cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
+    }
+    // programMode
+    if (getModelGroup() in ['AVATTO']) {
         if (settings?.programMode != null) {
             def value = safeToInt( programMode )
             if (settings?.logEnable) log.debug "${device.displayName} setting Program Mode to ${PROGRAM_MODE_NAME(value)} (${programMode})"
             cmds += sendTuyaCommand("68", DP_TYPE_ENUM, zigbee.convertToHexString(value as int, 2))
         }
     }
-    else if (getModelGroup() in ['BRT-100']) {
-        fncmd = safeToInt( tempCalibration )
-        if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to= ${fncmd}"
-        cmds += sendTuyaCommand("69", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
-        fncmd = safeToInt( minTemp )
-        if (settings?.logEnable) log.trace "${device.displayName} setting minTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("6D", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
-        fncmd = safeToInt( maxTemp )
-        if (settings?.logEnable) log.trace "${device.displayName} setting maxTemp to= ${fncmd}"
-        cmds += sendTuyaCommand("6C", DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))     
+    // sound
+    if (isBEOK()) {
+        fncmd = settings?.sound == false ? 0 : 1
+        if (settings?.logEnable) log.trace "${device.displayName} setting sound to ${fncmd} (${fncmd==0?'off':'on'})"
+        cmds += sendTuyaCommand("07", DP_TYPE_BOOL, zigbee.convertToHexString(fncmd as int, 2))
+    }
+    // brightness
+    if (isBEOK()) {
+        log.trace "settings?.brightness = ${settings?.brightness}"
+        if (settings?.brightness != null) {
+            def key = safeToInt(settings?.brightness)
+            def value = BRIGHTNES_NAME(key)
+            log.trace "key=${key} value=${value}"
+            if (value != null) {
+                def dpValHex = zigbee.convertToHexString(key as int, 2)
+                cmds += sendTuyaCommand("68", DP_TYPE_ENUM, dpValHex)            
+                if (settings?.logEnable) log.debug "${device.displayName} setting brightness to ${value} ($key)"
+            }
+        }
     }
     
     /* unconditional */ log.info "${device.displayName} Update finished"
@@ -1112,9 +1302,13 @@ def refresh() {
             cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))   
             sendZigbeeCommands( cmds ) 
         */
-        case 'AVATTO' :
+        case 'AVATTO' :  // wakes up AVATTO - LCD display goes to normal brightness
             fncmd = 0
             cmds += sendTuyaCommand("27", DP_TYPE_ENUM, zigbee.convertToHexString(fncmd as int, 8))
+            break
+        case 'BEOK' :    // does nothing 
+            fncmd = 0
+            cmds += sendTuyaCommand("27", DP_TYPE_ENUM, zigbee.convertToHexString(fncmd as int, 2))
             break
         default :
             cmds += zigbee.readAttribute(0 , 0 )
@@ -1142,6 +1336,7 @@ def factoryReset( yes ) {
             sendZigbeeCommands( cmds ) 
         */
         case 'AVATTO' :
+        case 'BEOK' :
             fncmd = 1    // reset!
             cmds += sendTuyaCommand("27", DP_TYPE_BOOL, zigbee.convertToHexString(fncmd as int, 2))
             break
@@ -1161,8 +1356,62 @@ def checkDriverVersion() {
         if (txtEnable==true) log.debug "${device.displayName} updating the settings from the current driver version ${state.driverVersion} to the new version ${driverVersionAndTimeStamp()}"
         initializeVars( fullInit = false ) 
         state.driverVersion = driverVersionAndTimeStamp()
+        if (device.currentValue("presence", true) == null) {
+        	sendEvent(name: "presence", value: "unknown") 
+        }
+        
     }
 }
+
+// called when any event was received from the Zigbee device in parse() method..
+def setPresent() {
+    if (device.currentValue("presence", true) != "present") {
+    	sendEvent(name: "presence", value: "present") 
+        runIn( defaultPollingInterval, pollPresence, [overwrite: true])
+    }
+    state.notPresentCounter = 0
+}
+
+// called every 60 minutes from pollPresence()
+def checkIfNotPresent() {
+    if (state.notPresentCounter != null) {
+        state.notPresentCounter = state.notPresentCounter + 1
+        if (state.notPresentCounter >= presenceCountTreshold) {
+            if (device.currentValue("presence", true) != "not present") {
+    	        sendEvent(name: "presence", value: "not present")
+                //state.lastPresenceState = "not present"
+                if (logEnable==true) log.warn "${device.displayName} not present!"
+            }
+            /*            
+            if (!(device.currentValue('powerSource', true) in ['unknown'])) {
+    	        powerSourceEvent("unknown")
+                if (settings?.txtEnable) log.warn "${device.displayName} is not present!"
+            }
+            */
+            /*
+            if (!(device.currentValue('motion', true) in ['inactive', '?'])) {
+                handleMotion(false, isDigital=true)
+                if (settings?.txtEnable) log.warn "${device.displayName} forced motion to '<b>inactive</b>"
+            }
+            if (safeToInt(device.currentValue('battery', true)) != 0) {
+                if (settings?.txtEnable) log.warn "${device.displayName} forced battery to '<b>0 %</b>"
+                sendBatteryEvent( 0, isDigital=true )
+            }
+            */
+        }
+    }
+    else {
+        state.notPresentCounter = 0  
+    }
+}
+
+// check for device offline every 60 minutes
+def pollPresence() {
+    if (logEnable) log.debug "${device.displayName} pollPresence()"
+    checkIfNotPresent()
+    runIn( defaultPollingInterval, pollPresence, [overwrite: true])
+}
+
 
 def logInitializeRezults() {
     log.info "${device.displayName} manufacturer  = ${device.getDataValue("manufacturer")} ModelGroup = ${getModelGroup()}"
@@ -1190,15 +1439,21 @@ void initializeVars( boolean fullInit = true ) {
     //
     if (fullInit == true || state.lastThermostatMode == null) state.lastThermostatMode = "unknown"
     if (fullInit == true || state.lastThermostatOperatingState == null) state.lastThermostatOperatingState = "unknown"
+    if (fullInit == true || state.notPresentCounter == null) state.notPresentCounter = 0
     //
-    if (fullInit == true || device.getDataValue("logEnable") == null) device.updateSetting("logEnable", true)
-    if (fullInit == true || device.getDataValue("txtEnable") == null) device.updateSetting("txtEnable", true)
-    if (fullInit == true || device.getDataValue("forceManual") == null) device.updateSetting("forceManual", false)    
-    if (fullInit == true || device.getDataValue("resendFailed") == null) device.updateSetting("resendFailed", false)    
-    if (fullInit == true || device.getDataValue("minTemp") == null) device.updateSetting("minTemp", 10)    
-    if (fullInit == true || device.getDataValue("maxTemp") == null) device.updateSetting("maxTemp", 28)
-    if (fullInit == true || device.getDataValue("tempCalibration") == null) device.updateSetting("tempCalibration", 0)
-    if (fullInit == true || device.getDataValue("hysteresis") == null) device.updateSetting("hysteresis", 1)
+    if (fullInit == true || settings?.logEnable == null) device.updateSetting("logEnable", true)
+    if (fullInit == true || settings?.txtEnable == null) device.updateSetting("txtEnable", true)
+    if (fullInit == true || settings?.forceManual == null) device.updateSetting("forceManual", false)    
+    if (fullInit == true || settings?.resendFailed == null) device.updateSetting("resendFailed", false)    
+    if (fullInit == true || settings?.minTemp == null) device.updateSetting("minTemp", [value: 10 , type:"number"])    
+    if (fullInit == true || settings?.maxTemp == null) device.updateSetting("maxTemp", [value: 35 , type:"number"])
+    if (fullInit == true || settings?.tempCeiling == null) device.updateSetting("tempCeiling", [value: 35 , type:"number"])
+    if (fullInit == true || settings?.tempCalibration == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
+    if (fullInit == true || settings?.hysteresis == null) device.updateSetting("hysteresis", [value:1.0, type:"decimal"])
+    if (fullInit == true || settings?.sound == null) device.updateSetting("sound", false)    
+    if (fullInit == true || settings?.brightness == null) device.updateSetting("brightness", [value:"3", type:"enum"])
+
+    
     //
     
     
@@ -1212,6 +1467,7 @@ def initialize() {
     if (true) "${device.displayName} Initialize()..."
     unschedule()
     initializeVars()
+    runIn( defaultPollingInterval, pollPresence, [overwrite: true])
     setDeviceLimits()
     installed()
     updated()
@@ -1220,7 +1476,7 @@ def initialize() {
 
 def setDeviceLimits() { // for google and amazon compatability
     sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "°C", isStateChange: true, displayed: false)
-	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 28, unit: "°C", isStateChange: true, displayed: false)
+	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true, displayed: false)
     updateDataValue("lastRunningMode", "heat")
 	log.trace "setDeviceLimits - device max/min set"
 }	
@@ -1322,23 +1578,41 @@ def controlMode( mode ) {
 def childLock( mode ) {
     ArrayList<String> cmds = []
     def dp
-    if (getModelGroup() in ["AVATTO"]) dp = "28"
-    else if (getModelGroup() in ["BRT-100"]) dp = "0D"
-    else return
-        
-    switch (mode) {
-        case "off" : 
-            cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "00")
-            break
-        case "on" :
-            cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "01")
-            break
-        default :
-            break
+    if (getModelGroup() in ["AVATTO", "BEOK"]) {dp = "28"}
+    else if (getModelGroup() in ["BRT-100"]) {dp = "0D"}
+    else {
+        if (settings?.txtEnable) log.warn "${device.displayName} child lock mode: ${mode} is not supported for modelGroup${getModelGroup()}"
     }
+    // TODO - check childLock for MOES
+    if (mode == "off") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "00")}
+    else if (mode == "on") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "01")}
+    else {if (settings?.txtEnable) log.warn "${device.displayName} unsupported child lock mode ${mode} !"}
     sendEvent(name: "childLock", value: mode)
-    if (settings?.logEnable) log.trace "${device.displayName} sending child lock mode : ${mode}"
+    if (settings?.txtEnable) log.info "${device.displayName} sending child lock mode : ${mode}"
     sendZigbeeCommands( cmds )    
+}
+
+
+def setBrightness( bri ) {
+    ArrayList<String> cmds = []
+    def dp
+    if (isBEOK()) {
+        dp = "68"
+        def key = BRIGHTNES_KEY(bri)
+        log.trace "setBrightness ${bri} key=${key}"
+        if (key != null) {
+            def dpValHex = zigbee.convertToHexString(key as int, 2)
+            cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
+            if (settings?.logEnable) log.debug "${device.displayName} changing brightness to ${bri} ($key)"
+            sendZigbeeCommands( cmds )    
+        }
+        else {
+            if (settings?.txtEnable) log.warn "${device.displayName} invalid brightness control ${bri}"
+        }
+    }
+    else {
+        if (settings?.txtEnable) log.warn "${device.displayName} brightness control is not supported for modelGroup${getModelGroup()}"
+    }
 }
 
 def calibration( offset ) {
@@ -1389,21 +1663,16 @@ def zTest( dpCommand, dpValue, dpTypeString ) {
 
     log.warn " sending TEST command=${dpCommand} value=${dpValue} ($dpValHex) type=${dpType}"
 
-    switch ( getModelGroup() ) {
-        case 'AVATTO' :                          
-        case 'MOES' :
-        case 'BEOK' :
-        case 'MODEL3' :
-        case 'BRT-100' :
-        case 'TEST2' :                           // MOES
-        case 'TEST3' :
-        case 'UNKNOWN' :
-        default :
-            break
-    }     
-
     sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValHex) )
-}    
+}
+
+
+def test() {
+    
+device.updateSetting("brightness", [value:"3", type:"enum"])
+
+}
+    
 /*
     BRT-100 Zigbee network re-pair procedure: After the actuator has completed self-test, long press [X] access to interface, short press '+' to choose WiFi icon,
         short press [X] to confirm this option, long press [X]. WiFi icon will start flashing when in pairing mode.
