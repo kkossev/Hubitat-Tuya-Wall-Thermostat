@@ -32,13 +32,13 @@
  * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
  * ver. 1.2.6 2022-10-16 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness bug fix? maxTemp bug fix for BEOK; heatingTemp rounded to 0.5 for BEOK
- *                                  setBrightness static constraints; brightnessOptions key as string; isBEOK(); BEOK brightness defaultValue: '3'
+ *                                  setBrightness static constraints; brightnessOptions key as string; isBEOK(); BEOK brightness defaultValue: '3'; cool() does not switch the thermostat off anymore'; removed getBrightnessOptions() from Preferences section
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/16 7:07 PM"}
+def timeStamp() {"2022/10/16 8:28 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -108,13 +108,13 @@ metadata {
             input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 0.5 .. 5.0 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
             if (isBEOK()) {
                 input (name: "tempCeiling", type: "number", title: "<b>Temperature Ceiling</b>", description: "<i>temperature limit parameter (unknown functionality) ></i>", defaultValue: 35, range: "35..95")    // step is 5 deg. for BEOK'; default 35?
-                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness control</i>", defaultValue: '3', options: getBrightnessOptions())
+                input (name: "brightness", type: "enum", title: "<b>LCD brightness</b>", description:"<i>LCD brightness control</i>", defaultValue: '3', options:['0':'off', '1':'low', '2':'medium', '3':'high'])
             }
             if (getModelGroup() in ['AVATTO'])  {
                 input (name: "programMode", type: "enum", title: "<b>Program Mode</b> (thermostat internal schedule)", description: "<i>Recommended selection is '<b>off</b>'</i>", defaultValue: 0, options: [0:"off", 1:"Mon-Fri", 2:"Mon-Sat", 3: "Mon-Sun"])
             }
             if (isBEOK())  {
-                input (name: "sound", type: "bool", title: "<b>Disable/Enable sound</b>", description: "<i>Disable/Enable sound</i>", defaultValue: true)
+               input (name: "sound", type: "bool", title: "<b>Disable/Enable sound</b>", description: "<i>Disable/Enable sound</i>", defaultValue: true)
             }
         }
     }
@@ -191,7 +191,7 @@ def parse(String description) {
             }
             //
             def cmds
-            if ( getModelGroup() in ['BEOK'] ) {
+            if (isBEOK()) {
                 // TODO - do NOT synchronize the clock between 00:00 and 09:00 local time !!
                 if (hour >= 8) {
                     cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)((now() - 3600000L * (8-offsetHours))/1000),8) +  zigbee.convertToHexString((int)((now() + 3600000L * 8) / 1000), 8))    // works OK between 8 and 24 h
@@ -272,7 +272,7 @@ def parse(String description) {
                             break    // ignore 0x02 command if thermostat was switched off !!
                         }
                         else {
-                            if (getModelGroup() in ['BEOK'])  {
+                            if (isBEOK())  {
                                 def mode
                                 if (fncmd != 0) {     // BEOK: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
                                     mode = "auto"    // scheduled
@@ -299,7 +299,7 @@ def parse(String description) {
                 case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // BEOK x5hWorkingStatus (operatingState) !
                     if (settings?.logEnable) log.trace "processing command dp=${dp} fncmd=${fncmd}"
                     // TODO - use processTuyaModes3( dp, fncmd )
-                    if (getModelGroup() in ['BEOK']) { // thermostatMode for BEOK
+                    if (isBEOK()) { // thermostatMode for BEOK
                         if (fncmd == 1) {
                             sendThermostatOperatingStateEvent("heating")
                         }
@@ -343,7 +343,7 @@ def parse(String description) {
                     if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
                     break
                 case 0x07 :    // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving     // sound for X5H thermostat
-                    if ( getModelGroup() in ['BEOK'] ) {
+                    if (isBEOK()) {
                         if (settings?.txtEnable) log.info "${device.displayName} sound is: ${fncmd==0?'off':'on'}"
                         device.updateSetting( "sound",  [value:(fncmd==0?false:true), type:"bool"] )
                         // TODO - update a sound preference parameter for BEOK !
@@ -388,7 +388,7 @@ def parse(String description) {
                         device.updateSetting("maxTemp", [value: fncmd as int , type:"number"])
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     }
-                    else if (getModelGroup() in ['BEOK']) {
+                    else if (isBEOK()) {
                         device.updateSetting("maxTemp", [value: fncmd as int , type:"number"])
                         if (settings?.txtEnable) log.info "${device.displayName} BEOK Max Temp Limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     }
@@ -474,7 +474,7 @@ def parse(String description) {
                     if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} Thermostat PID regulation point is: ${fncmd}"    // Model#1 only !!
                     }
-                    else if (getModelGroup() in ['BEOK']) {
+                    else if (isBEOK()) {
                         double floatDif = (fncmd as double) / 10.0
                         device.updateSetting("hysteresis", [value:floatDif, type:"decimal"])
                         if (settings?.txtEnable) log.info "${device.displayName} (0x65) temperature difference (hysteresis) is: ${floatDif} C (${fncmd})"
@@ -484,7 +484,7 @@ def parse(String description) {
                     }
                     break
                 case 0x66 :     // (102) min temperature limit; also LIDL EcoTemp; x5hProtectionTempLimit BEOK (default 35)
-                    if (getModelGroup() in ['BEOK']) {    //  aka 'temperature ceiling'; aka protection temperature limit
+                    if (isBEOK()) {    //  aka 'temperature ceiling'; aka protection temperature limit
                         if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                         device.updateSetting("tempCeiling", [value: fncmd as int , type:"number"])    // whole number
                     }
@@ -500,7 +500,7 @@ def parse(String description) {
                     else if (getModelGroup() in ['AVATTO']) {     // Antifreeze mode ?
                         if (settings?.txtEnable) log.info "${device.displayName} Antifreeze mode is ${fncmd==0?'off':'on'} (${fncmd})"
                     }
-                    else if (getModelGroup() in ['BEOK']) {
+                    else if (isBEOK()) {
                         if (settings?.txtEnable) log.info "${device.displayName} output reverse is ${fncmd==0?'off':'on'} (${fncmd})"
                     }
                     else {
@@ -515,7 +515,7 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO Program Mode (104) received is: ${PROGRAM_MODE_NAME(value)} (${fncmd})"      // AVATTO programm mode 0:0ff 1:Mon-Fri 2:Mon-Sat 3:Mon-Sun    
                         device.updateSetting( "programMode",  [value:value.toString(), type:"enum"] )
                     }
-                    else if (getModelGroup() in ['BEOK']) {
+                    else if (isBEOK()) {
                         if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${(brightnessOptions.find{it.key == fncmd.toString()} ?: 'unknown').value} (${fncmd})"
                         device.updateSetting( "brightness",  [value: fncmd.toString(), type:"enum"] )
                     }
@@ -666,7 +666,7 @@ def processTuyaCalibration( dp, fncmd )
         device.updateSetting("tempCalibration", [value: temp , type:"decimal"])
         //log.trace "AVATTO calibration"
     }
-    if (getModelGroup() in ['BEOK'] ){    // (dp=27, fncmd decimal X.X)
+    if (isBEOK()){    // (dp=27, fncmd decimal X.X)
         doubleCalib = safeToDouble(fncmd) / 10.0
         device.updateSetting("tempCalibration", [value:doubleCalib, type:"decimal"])
         if (settings?.logEnable) log.trace "BEOK calibration received is: ${doubleCalib}C (${fncmd})"
@@ -1027,7 +1027,7 @@ def setHeatingSetpoint( temperature ) {
     def previousSetpoint = device.currentState('heatingSetpoint', true).value /*as int*/
     double tempDouble
     if (settings?.logEnable) log.trace "setHeatingSetpoint temperature = ${temperature}  as int = ${temperature as int} (previousSetpointt = ${previousSetpoint})"
-    if (getModelGroup() in ['BEOK']) {
+    if (isBEOK()) {
         if (settings?.logEnable) log.debug "0.5 C correction of the heating setpoint${temperature} for BEOK"
         tempDouble = safeToDouble(temperature)
         tempDouble = Math.round(tempDouble * 2) / 2.0
@@ -1083,7 +1083,7 @@ def setThermostatFanMode(fanMode) { sendEvent(name: "thermostatFanMode", value: 
 
 def auto() { setThermostatMode("auto") }
 def emergencyHeat() { setThermostatMode("emergency heat") }
-def cool() { setThermostatMode("off") }
+def cool() { setThermostatMode("cool") }
 def fanAuto() { setThermostatFanMode("auto") }
 def fanCirculate() { setThermostatFanMode("circulate") }
 def fanOn() { setThermostatFanMode("on") }
@@ -1240,13 +1240,13 @@ def updated() {
         }
     }
     // sound
-    if (getModelGroup() in ['BEOK']) {
+    if (isBEOK()) {
         fncmd = settings?.sound == false ? 0 : 1
         if (settings?.logEnable) log.trace "${device.displayName} setting sound to ${fncmd} (${fncmd==0?'off':'on'})"
         cmds += sendTuyaCommand("07", DP_TYPE_BOOL, zigbee.convertToHexString(fncmd as int, 2))
     }
     // brightness
-    if (getModelGroup() in ['BEOK']) {
+    if (isBEOK()) {
         log.trace "settings?.brightness = ${settings?.brightness}"
         if (settings?.brightness != null) {
             def key = safeToInt(settings?.brightness)
@@ -1571,7 +1571,7 @@ def childLock( mode ) {
 def setBrightness( bri ) {
     ArrayList<String> cmds = []
     def dp
-    if (getModelGroup() in ["BEOK"]) {
+    if (isBEOK()) {
         dp = "68"
         def selection = brightnessOptions.find{it.value == bri}
         if (selection != null) {
