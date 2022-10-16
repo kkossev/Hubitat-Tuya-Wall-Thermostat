@@ -33,12 +33,13 @@
  *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
  * ver. 1.2.6 2022-10-16 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness bug fix? maxTemp bug fix for BEOK; heatingTemp rounded to 0.5 for BEOK
  *                                  setBrightness static constraints; brightnessOptions key as string; isBEOK(); BEOK brightness defaultValue: '3'; cool() does not switch the thermostat off anymore'; removed getBrightnessOptions() from Preferences section
+ *                                  missing code fix;
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/16 9:07 PM"}
+def timeStamp() {"2022/10/16 9:26 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -136,6 +137,33 @@ metadata {
 ]
 
 def isBEOK() { return device.getDataValue('manufacturer') in ['_TZE200_2ekuz3dz'] }
+@Field static final Map brightnessOptions = [
+    '0' : 'off',
+    '1' : 'low',
+    '2' : 'medium',
+    '3' : 'high'
+]
+private Map getBrightnessOptions() {
+    return brightnessOptions
+}
+private BRIGHTNES_NAME(value) { value == 0 ? "off" : value == 1 ? "low" : value == 2 ? "low" : value == 3 ? "high" : null }
+private BRIGHTNES_KEY(value) { value == "off" ? 0 : value ==  "low" ? 1 : value == "low" ? 2 : value == "high" ? 3 : null }
+
+
+
+@Field static final Map faultOptions = [
+    '0' : 'none',
+    '1' : 'e1',
+    '2' : 'e2',
+    '3' : 'e3'
+]
+
+@Field static final Map sensorOptions = [    // BEOK - only in and out; AVATTO + both
+    '0' : 'in',
+    '1' : 'out',
+    '2' : 'both'
+]
+
 private PROGRAM_MODE_VALUE(mode) { mode == "off" ? 0 : mode ==  "Mon-Fri" ? 1 : mode == "Mon-Sat" ? 2 : mode == "Mon-Sun" ? 3 : null }
 private PROGRAM_MODE_NAME(value) { value == 0 ? "off" : value == 1 ? "Mon-Fri" : value == 2 ? "Mon-Sat" : value == 3 ? "Mon-Sun" : null }
 
