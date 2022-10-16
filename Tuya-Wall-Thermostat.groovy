@@ -29,17 +29,14 @@
  *                                  Refresh command wakes up the display';  Google Home compatibility
  * ver. 1.2.3 2022-09-05 kkossev  - added FactoryReset command (experimental, change Boolean debug = true); added AVATTO programMode preference; 
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
- * ver. 1.2.5 2022-10-08 kkossev  - (dev. branch) - added all known BEOK commands decoding; added sound on/off preference for BEOK; fixed Child lock not working for BEOK; tempCalibration for BEOK; hysteresis for BEOK; tempCeiling for BEOK
- *                                  added setBrightness command and parameter; maxTemp fix; BEOK x5hWorkingStatus (operatingState) fix; BEOK thermostatMode fix; 0.5 degrees heatingSetpoint for BEOK;
- * ver. 1.2.6 2022-10-16 kossev  - (dev. branch) - scientific representation bug fix; BEOK time sync workaround; round() bug fix; parameters number/decimal fixes; brightness bug fix? maxTemp bug fix for BEOK; heatingTemp rounded to 0.5 for BEOK
- *                                  setBrightness static constraints; brightnessOptions key as string; isBEOK(); BEOK brightness defaultValue: '3'; cool() does not switch the thermostat off anymore'; removed getBrightnessOptions() from Preferences section
- *                                  missing code fix;
+ * ver. 1.2.5 2022-10-08 kkossev  - BEOK: added sound on/off, tempCalibration, hysteresis, tempCeiling, setBrightness, 0.5 degrees heatingSetpoint (BEOK only); bug fixes for BEOK: Child lock, thermostatMode, operatingState
+ * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/16 9:26 PM"}
+def timeStamp() {"2022/10/16 10:08 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -48,6 +45,7 @@ import hubitat.device.HubAction
 import hubitat.device.Protocol
 import java.text.DecimalFormat
 import groovy.time.TimeCategory
+
 
 @Field static final Boolean debug = false
 
@@ -1664,19 +1662,6 @@ def zTest( dpCommand, dpValue, dpTypeString ) {
     def dpValHex = dpTypeString=="DP_TYPE_VALUE" ? zigbee.convertToHexString(dpValue as int, 8) : dpValue
 
     log.warn " sending TEST command=${dpCommand} value=${dpValue} ($dpValHex) type=${dpType}"
-
-    switch ( getModelGroup() ) {
-        case 'AVATTO' :                          
-        case 'MOES' :
-        case 'BEOK' :
-        case 'MODEL3' :
-        case 'BRT-100' :
-        case 'TEST2' :                           // MOES
-        case 'TEST3' :
-        case 'UNKNOWN' :
-        default :
-            break
-    }     
 
     sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValHex) )
 }
