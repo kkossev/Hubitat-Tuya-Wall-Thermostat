@@ -38,7 +38,7 @@
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/16 8:28 PM"}
+def timeStamp() {"2022/10/16 9:07 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -346,7 +346,6 @@ def parse(String description) {
                     if (isBEOK()) {
                         if (settings?.txtEnable) log.info "${device.displayName} sound is: ${fncmd==0?'off':'on'}"
                         device.updateSetting( "sound",  [value:(fncmd==0?false:true), type:"bool"] )
-                        // TODO - update a sound preference parameter for BEOK !
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} valve starts moving: 0x${fncmd}"    // BRT-100  00-> opening; 01-> closed!
@@ -516,7 +515,7 @@ def parse(String description) {
                         device.updateSetting( "programMode",  [value:value.toString(), type:"enum"] )
                     }
                     else if (isBEOK()) {
-                        if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${(brightnessOptions.find{it.key == fncmd.toString()} ?: 'unknown').value} (${fncmd})"
+                        if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${BRIGHTNES_NAME(fncmd as int)} (${fncmd})"
                         device.updateSetting( "brightness",  [value: fncmd.toString(), type:"enum"] )
                     }
                     else {
@@ -1250,12 +1249,12 @@ def updated() {
         log.trace "settings?.brightness = ${settings?.brightness}"
         if (settings?.brightness != null) {
             def key = safeToInt(settings?.brightness)
-            def value = brightnessOptions.find{it.key == key.toString()}
+            def value = BRIGHTNES_NAME(key)
             log.trace "key=${key} value=${value}"
             if (value != null) {
                 def dpValHex = zigbee.convertToHexString(key as int, 2)
                 cmds += sendTuyaCommand("68", DP_TYPE_ENUM, dpValHex)            
-                if (settings?.logEnable) log.debug "${device.displayName} setting brightness to ${value.value} ($key)"
+                if (settings?.logEnable) log.debug "${device.displayName} setting brightness to ${value} ($key)"
             }
         }
     }
@@ -1573,11 +1572,12 @@ def setBrightness( bri ) {
     def dp
     if (isBEOK()) {
         dp = "68"
-        def selection = brightnessOptions.find{it.value == bri}
-        if (selection != null) {
-            def dpValHex = zigbee.convertToHexString(selection.key as int, 2)
+        def key = BRIGHTNES_KEY(bri)
+        log.trace "setBrightness ${bri} key=${key}"
+        if (key != null) {
+            def dpValHex = zigbee.convertToHexString(key as int, 2)
             cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
-            if (settings?.logEnable) log.debug "${device.displayName} changing brightness to ${bri} ($selection.key)"
+            if (settings?.logEnable) log.debug "${device.displayName} changing brightness to ${bri} ($key)"
             sendZigbeeCommands( cmds )    
         }
         else {
