@@ -31,13 +31,13 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - BEOK: added sound on/off, tempCalibration, hysteresis, tempCeiling, setBrightness, 0.5 degrees heatingSetpoint (BEOK only); bug fixes for BEOK: Child lock, thermostatMode, operatingState
  * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
- * ver. 1.2.7 2022-10-18 kkossev  - (dev. branch) BEOK: added frostProtection; BRT-100: tempCalibration and hysteresis bug fixes?
+ * ver. 1.2.7 2022-10-18 kkossev  - (dev. branch) BEOK: added frostProtection; BRT-100: tempCalibration and hysteresis bug fixes?; reversed heat and auto modes for MOES dp=3; 
  *
  *
 */
 
 def version() { "1.2.6" }
-def timeStamp() {"2022/10/18 8:33 PM"}
+def timeStamp() {"2022/10/18 10:23 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -125,7 +125,7 @@ metadata {
 
 @Field static final Map<String, String> Models = [
     '_TZE200_ye5jkfsb'  : 'AVATTO',      // Tuya AVATTO ME81AH 
-    '_TZE200_aoclfnxz'  : 'MOES',        // Tuya Moes BHT series Thermostat BTH-002
+    '_TZE200_aoclfnxz'  : 'MOES',        // Tuya Moes BHT series Thermostat BTH-002  (also BSEED)
     '_TZE200_2ekuz3dz'  : 'BEOK',        // Beok thermostat
     '_TZE200_other'     : 'MODEL3',      // Tuya other models (reserved)
     '_TZE200_b6wax7g0'  : 'BRT-100',     // TRV BRT-100; ZONNSMART
@@ -267,7 +267,7 @@ def parse(String description) {
                     if (getModelGroup() in ['BRT-100', 'TEST2']) {
                         processBRT100Presets( dp, fncmd )                       // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
                     }
-                    else {    // AVATTO switch (boolean) // state; BEOK x5hState
+                    else {    // AVATTO switch (boolean) // ; BEOK x5hState; MOES/BEOK
                         def mode = (fncmd == 0) ? "off" : state.lastThermostatMode    // version 1.2.3
                         if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode (switch state) reported is: ${mode} (dp=${dp}, fncmd=${fncmd})"}
                         else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode (switch state) reported is: ${mode}"}
@@ -285,7 +285,7 @@ def parse(String description) {
                         }
                     }
                     break
-                case 0x02 : // Mode (LIDL)                                  // DP_IDENTIFIER_THERMOSTAT_HEATSETPOINT 0x02 // Heatsetpoint
+                case 0x02 : // Mode (AVATTO,BEOK, LIDL) or  Heatsetpoint for BRT-100
                     if (settings?.logEnable) log.trace " dp_id=${dp_id} dp=${dp} fncmd=${fncmd}"
                     if (getModelGroup() in ['BRT-100', 'TEST2']) {             // BRT-100 Thermostat heatsetpoint # 0x0202 #
                         processTuyaHeatSetpointReport( fncmd )              // target temp, in degrees (int!)
@@ -299,7 +299,7 @@ def parse(String description) {
                             sendEvent(name: "thermostatOperatingState", value: "idle")
                             break    // ignore 0x02 command if thermostat was switched off !!
                         }
-                        else {
+                        else {    // previous thermosatMode was heat or auto
                             if (isBEOK())  {
                                 def mode
                                 if (fncmd != 0) {     // BEOK: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
@@ -339,20 +339,27 @@ def parse(String description) {
                     }
                     else if (descMap?.data.size() <= 7) { // AVATTO / MOES / BEOK
                         def mode
-                        if (!(fncmd == 0)) {        // KK inverted
-                            mode = "auto"    // scheduled
-
+                        if (getModelGroup() in ['MOES']) {
+                            if (fncmd == 0) mode = "auto"
+                            else mode = "heat" // manual
+                        }
+                        else {    // for AVATTO and BEOK
+                            if (!(fncmd == 0)) {        // inverted!
+                                mode = "auto"    // scheduled
+                            }
+                            else mode = "heat" // manual
+                        }
+                        if (mode == "auto") {
                             if (settings?.forceManual == true) {
                                 if (settings?.txtEnable) log.warn "${device.displayName} 'Force Manual Mode' preference option is enabled, switching back to heat mode!"
-                                setManualMode()
+                                setManualMode()    // TODO - check for MOES !!!
                             }
                             else {
                                 //log.trace "setManualMode() <b>not called!</b>"
                             }
                         } else {
-                            mode = "heat"    // manual
+                            //mode = "heat"    // manual
                         }
-                        log.trace "mode = ${mode}"                        
                         if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
                         else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: ${mode}"}
                         sendEvent(name: "thermostatMode", value: mode, displayed: true)    // mode was confirmed from the Preset info data...
@@ -468,7 +475,7 @@ def parse(String description) {
                 case 0x23 :    // (35) LIDL BatteryVoltage
                     if (settings?.txtEnable) log.info "${device.displayName} BatteryVoltage is: ${fncmd}"
                     break
-                case 0x24 :    // (36) : current (running) operating state (valve) AVATTO (enum) 'open','close'
+                case 0x24 :    // (36) : current (running) operating state (valve) AVATTO (enum) 'open','close' also MOES
                     if (settings?.txtEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? 'heating' : 'idle'}"}
                     else if (settings?.logEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? 'heating' : 'idle'} (dp=${dp}, fncmd=${fncmd})"}
                     sendThermostatOperatingStateEvent(fncmd==0 ? "heating" : "idle")
