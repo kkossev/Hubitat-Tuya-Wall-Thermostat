@@ -36,7 +36,7 @@
  *
 */
 
-def version() { "1.2.6" }
+def version() { "1.2.7" }
 def timeStamp() {"2022/10/23 10:55 AM"}
 
 import groovy.json.*
