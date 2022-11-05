@@ -38,7 +38,7 @@
 */
 
 def version() { "1.2.7" }
-def timeStamp() {"2022/11/05 8:23 PM"}
+def timeStamp() {"2022/11/05 8:24 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -319,7 +319,7 @@ def parse(String description) {
                                 else {
                                     mode = "heat"    // manual
                                 }
-                                log.trace "BEOK mode = ${mode}"                        
+                                if (settings?.logEnable) log.trace "BEOK mode = ${mode}"                        
                                 if (settings?.logEnable) {log.info "${device.displayName} BEOK Thermostat mode reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
                                 else if (settings?.txtEnable) {log.info "${device.displayName} BEOK Thermostat mode reported is: ${mode}"}
                                 sendEvent(name: "thermostatMode", value: mode, displayed: true)    // BEOK
@@ -1220,9 +1220,9 @@ def updated() {
     // tempCalibration
     dp = getModelGroup() in ['AVATTO', 'BEOK'] ? "1B" : getModelGroup() in ['BRT-100'] ? "69" : null
     if (getModelGroup() in ['AVATTO', 'BEOK', 'BRT-100'] && dp != null) {
-        log.trace "tempCalibration = ${tempCalibration}"
+        if (settings?.logEnable) log.trace "tempCalibration = ${tempCalibration}"
         fncmd = getModelGroup() in [ 'BEOK'] ? (safeToDouble( tempCalibration )*10) as int : safeToDouble( tempCalibration ) as int
-        log.trace "tempCalibration fncmd = ${fncmd}"
+        if (settings?.logEnable) log.trace "tempCalibration fncmd = ${fncmd}"
         if (settings?.logEnable) log.trace "${device.displayName} setting tempCalibration to ${tempCalibration} (${fncmd})"
         cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))  
     }
@@ -1283,11 +1283,11 @@ def updated() {
     }
     // brightness
     if (isBEOK()) {
-        log.trace "settings?.brightness = ${settings?.brightness}"
+        if (settings?.logEnable) log.trace "settings?.brightness = ${settings?.brightness}"
         if (settings?.brightness != null) {
             def key = safeToInt(settings?.brightness)
             def value = BRIGHTNES_NAME(key)
-            log.trace "key=${key} value=${value}"
+            //log.trace "key=${key} value=${value}"
             if (value != null) {
                 def dpValHex = zigbee.convertToHexString(key as int, 2)
                 cmds += sendTuyaCommand("68", DP_TYPE_ENUM, dpValHex)            
@@ -1490,7 +1490,7 @@ def setDeviceLimits() { // for google and amazon compatability
     sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "°C", isStateChange: true, displayed: false)
 	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true, displayed: false)
     updateDataValue("lastRunningMode", "heat")
-	log.trace "setDeviceLimits - device max/min set"
+	if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
 }	
 
 def modeReceiveCheck() {
@@ -1611,7 +1611,7 @@ def setBrightness( bri ) {
     if (isBEOK()) {
         dp = "68"
         def key = BRIGHTNES_KEY(bri)
-        log.trace "setBrightness ${bri} key=${key}"
+        if (settings?.logEnable) log.trace "setBrightness ${bri} key=${key}"
         if (key != null) {
             def dpValHex = zigbee.convertToHexString(key as int, 2)
             cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
