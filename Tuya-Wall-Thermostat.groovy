@@ -38,7 +38,7 @@
 */
 
 def version() { "1.2.7" }
-def timeStamp() {"2022/11/05 8:22 PM"}
+def timeStamp() {"2022/11/05 8:23 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -153,8 +153,8 @@ def isBSEED() { return isMOES() }
 private Map getBrightnessOptions() {
     return brightnessOptions
 }
-private BRIGHTNES_NAME(value) { value == 0 ? "off" : value == 1 ? "low" : value == 2 ? "low" : value == 3 ? "high" : null }
-private BRIGHTNES_KEY(value) { value == "off" ? 0 : value ==  "low" ? 1 : value == "low" ? 2 : value == "high" ? 3 : null }
+private BRIGHTNES_NAME(value) { value == 0 ? "off" : value == 1 ? "low" : value == 2 ? "medium" : value == 3 ? "high" : null }
+private BRIGHTNES_KEY(value) { value == "off" ? 0 : value ==  "low" ? 1 : value == "medium" ? 2 : value == "high" ? 3 : null }
 
 
 
