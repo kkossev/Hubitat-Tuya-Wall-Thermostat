@@ -38,7 +38,7 @@
 */
 
 def version() { "1.2.7" }
-def timeStamp() {"2022/11/05 8:21 PM"}
+def timeStamp() {"2022/11/05 8:22 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -1067,7 +1067,7 @@ def setHeatingSetpoint( temperature ) {
     }
     else {
         if (temperature != (temperature as int)) {
-            if (temperature > previousSetpoint) {
+            if ((temperature as double) > (previousSetpoint as double)) {
                 temperature = (temperature + 0.5 ) as int
             }
             else {
