@@ -31,13 +31,13 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - BEOK: added sound on/off, tempCalibration, hysteresis, tempCeiling, setBrightness, 0.5 degrees heatingSetpoint (BEOK only); bug fixes for BEOK: Child lock, thermostatMode, operatingState
  * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
- * ver. 1.2.7 2022-10-23 kkossev  - (dev. branch) BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
+ * ver. 1.2.7 2022-11-05 kkossev  - (dev. branch) BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
  *
  *
 */
 
 def version() { "1.2.7" }
-def timeStamp() {"2022/10/23 10:55 AM"}
+def timeStamp() {"2022/11/05 8:21 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -362,7 +362,7 @@ def parse(String description) {
                         if (mode == "auto") {
                             if (settings?.forceManual == true) {
                                 if (settings?.txtEnable) log.warn "${device.displayName} 'Force Manual Mode' preference option is enabled, switching back to heat mode!"
-                                setManualMode()    // TODO - check for MOES !!!
+                                setManualMode()    // TODO - check for MOES - will not pass here !!!!
                             }
                             else {
                                 //log.trace "setManualMode() <b>not called!</b>"
@@ -405,7 +405,9 @@ def parse(String description) {
                 case 0x08 :    // DP_IDENTIFIER_WINDOW_OPEN2 0x08    // BRT-100
                     if (settings?.txtEnable) log.info "${device.displayName} Open window detection MODE (dp=${dp}) is: ${fncmd}"    //0:function disabled / 1:function enabled
                     break
-                // case 0x09 : // BRT-100 unknown function
+                case 0x09 : // BRT-100 unknown function
+                    if (settings?.logEnable) log.info "${device.displayName} BRT-100 unknown function (dp=${dp}) is: ${fncmd}"
+                    break
                 case 0x0A :    // (10) BEOK - x5hFrostProtection
                 if (settings?.txtEnable) log.info "${device.displayName} frost protection is: ${fncmd==0?'off':'on'} (0x${fncmd})"
                     device.updateSetting( "frostProtection",  [value:(fncmd==0?false:true), type:"bool"] )
@@ -826,6 +828,7 @@ def processTuyaModes3( dp, data ) {
     }
 }
 
+/*
 def processTuyaModes4( dp, data ) {
     // TODO - check for model !
     // dp = 0x0403 : // preset for moes    
@@ -850,6 +853,7 @@ def processTuyaModes4( dp, data ) {
             return
     }
 }
+*/
 
 def processTuyaBoostModeReport( fncmd )
 {
