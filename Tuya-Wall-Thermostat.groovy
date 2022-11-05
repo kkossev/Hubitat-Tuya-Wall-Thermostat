@@ -31,13 +31,15 @@
  * ver. 1.2.4 2022-09-28 kkossev  - _TZE200_2ekuz3dz fingerprint corrected
  * ver. 1.2.5 2022-10-08 kkossev  - BEOK: added sound on/off, tempCalibration, hysteresis, tempCeiling, setBrightness, 0.5 degrees heatingSetpoint (BEOK only); bug fixes for BEOK: Child lock, thermostatMode, operatingState
  * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
- * ver. 1.2.7 2022-11-05 kkossev  - (dev. branch) BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
+ * ver. 1.2.7 2022-11-05 kkossev  - BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
+ *                                  supressed dp=9 BRT-100 unknown function warning; 
+ * ver. 1.2.8 2022-11-05 kkossev  - (dev.branch) - added 'brightness' attribute
  *
  *
 */
 
-def version() { "1.2.7" }
-def timeStamp() {"2022/11/05 8:21 PM"}
+def version() { "1.2.8" }
+def timeStamp() {"2022/11/05 9:11 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -67,6 +69,7 @@ metadata {
         
         
         attribute "childLock", "enum", ["off", "on"]
+        attribute "brightness", "enum", ['off', 'low', 'medium', 'high']
 
         if (debug == true) {
             command "zTest", [
@@ -150,8 +153,8 @@ def isBSEED() { return isMOES() }
 private Map getBrightnessOptions() {
     return brightnessOptions
 }
-private BRIGHTNES_NAME(value) { value == 0 ? "off" : value == 1 ? "low" : value == 2 ? "low" : value == 3 ? "high" : null }
-private BRIGHTNES_KEY(value) { value == "off" ? 0 : value ==  "low" ? 1 : value == "low" ? 2 : value == "high" ? 3 : null }
+private BRIGHTNES_NAME(value) { value == 0 ? "off" : value == 1 ? "low" : value == 2 ? "medium" : value == 3 ? "high" : null }
+private BRIGHTNES_KEY(value) { value == "off" ? 0 : value ==  "low" ? 1 : value == "medium" ? 2 : value == "high" ? 3 : null }
 
 
 
@@ -564,6 +567,7 @@ def parse(String description) {
                     else if (isBEOK()) {
                         if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${BRIGHTNES_NAME(fncmd as int)} (${fncmd})"
                         device.updateSetting( "brightness",  [value: fncmd.toString(), type:"enum"] )
+                        sendEvent(name: "brightness", value: brightnessOptions[fncmd.toString()])
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
