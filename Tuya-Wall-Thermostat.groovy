@@ -1078,7 +1078,7 @@ def setHeatingSetpoint( temperature ) {
     }
     else {
         if (temperature != (temperature as int)) {
-            if (temperature > previousSetpoint) {
+            if ((temperature as double) > (previousSetpoint as double)) {
                 temperature = (temperature + 0.5 ) as int
             }
             else {
