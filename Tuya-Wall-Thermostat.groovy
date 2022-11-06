@@ -33,13 +33,13 @@
  * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
  * ver. 1.2.7 2022-11-05 kkossev  - BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
  *                                  supressed dp=9 BRT-100 unknown function warning; 
- * ver. 1.2.8 2022-11-06 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3
+ * ver. 1.2.8 2022-11-06 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored
  *
  *
 */
 
 def version() { "1.2.8" }
-def timeStamp() {"2022/11/06 11:38 AM"}
+def timeStamp() {"2022/11/06 12:25 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -294,7 +294,7 @@ def parse(String description) {
                             break
                     }                   
                     break
-                case 0x02 : // Mode (AVATTO,BEOK, LIDL)
+                case 0x02 : // thermostatMode (AVATTO,BEOK, LIDL)
                     switch (getModelGroup()) {
                         case 'AVATTO' :    // AVATTO : mode (enum) 'manual', 'program'; 
                         case 'BEOK' :     // BEOK: x5hMode
@@ -319,7 +319,7 @@ def parse(String description) {
                                 state.lastThermostatMode = thermostatMode
                             }
                             break
-                        case 'MOES' :    // MOES: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
+                        case 'MOES' :    // MOES thermostatMode: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
                             def mode
                             if (fncmd != 0) {     
                                 mode = "auto"    // scheduled
@@ -347,26 +347,15 @@ def parse(String description) {
                             break
                     }                   
                     break
-                case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // BEOK x5hWorkingStatus (operatingState) !
+                case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // BEOK x5hWorkingStatus (thermostatOperatingState) !
                     if (settings?.logEnable) log.trace "processing command dp=${dp} fncmd=${fncmd} (lastThermostatMode=${state.lastThermostatMode})"
                     switch (getModelGroup()) {
                         case 'AVATTO' :
                         case 'BEOK' :
-                            def thermostatMode = fncmd == 0 ? "heat" : "auto"    // inverted!
-                            if (thermostatMode == "auto") {
-                                if (settings?.forceManual == true) {
-                                    if (settings?.txtEnable) log.warn "${device.displayName} 'Force Manual Mode' preference option is enabled, switching back to heat mode!"
-                                    setManualMode()    // TODO - check for MOES - will not pass here !!!!
-                                }
-                            }
-                            if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode reported is: ${thermostatMode} (dp=${dp}, fncmd=${fncmd})"}
-                            else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: ${thermostatMode}"}
-                            sendEvent(name: "thermostatMode", value: thermostatMode, displayed: true)    // mode was confirmed from the Preset info data...
-                            state.lastThermostatMode = thermostatMode
-                            // TODO !! check !!
-                            sendThermostatOperatingStateEvent(fncmd == 1 ? "heating" : "idle")    // "thermostatOperatingState"
-                            if (settings?.logEnable) {log.info "${device.displayName} Thermostat working status (operatingState) reported is: ${thermostatMode} (dp=${dp}, fncmd=${fncmd})"}
-                            else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat working status (operatingState) reported is: ${thermostatMode}"}
+                            def thermostatOperatingState = (fncmd == 1) ? "heating" : "idle"
+                            sendThermostatOperatingStateEvent(thermostatOperatingState)    // "thermostatOperatingState"
+                            if (settings?.logEnable) {log.info "${device.displayName} Thermostat working status (thermostatOperatingState) reported is: ${thermostatOperatingState} (dp=${dp}, fncmd=${fncmd})"}
+                            else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat working status (thermostatOperatingState) reported is: ${thermostatOperatingState}"}
                             break
                         case 'MOES' :
                             if (settings?.logEnable) {log.warn "${device.displayName} IGNORING dp=${dp}, fncmd=${fncmd} command for BSEED/MOES while in <b>${device.currentValue("thermostatMode", true)}</b> thermostatMode!"}
