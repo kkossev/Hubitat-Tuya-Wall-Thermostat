@@ -39,7 +39,7 @@
 */
 
 def version() { "1.2.8" }
-def timeStamp() {"2022/11/06 10:34 AM"}
+def timeStamp() {"2022/11/06 11:38 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -271,14 +271,14 @@ def parse(String description) {
                         case 'MOES' :
                         case 'BEOK' :
                             def switchState = (fncmd == 0) ? "off" : state.lastThermostatMode
-                            sendEvent(name: "thermostatMode", value: switchState, displayed: true)
+                            sendEvent(name: "thermostatMode", value: switchState)
                             if (switchState == "off") {
                                 if (settings?.txtEnable) {log.info "${device.displayName} switchState reported is: OFF"}
-                                sendEvent(name: "thermostatOperatingState", value: "idle", displayed: true)
+                                sendEvent(name: "thermostatOperatingState", value: "idle")
                             }
                             else {
                                 if (settings?.logEnable) {log.info "${device.displayName} switchState reported is: ON, restoring last lastThermostatMode ${state.lastThermostatMode} (dp=${dp}, fncmd=${fncmd})"}
-                                sendEvent(name: "thermostatOperatingState", value: state.lastThermostatOperatingState, displayed: true)
+                                sendEvent(name: "thermostatOperatingState", value: state.lastThermostatOperatingState)
                             }                        
                             if (switchState == state.mode) {    // TODO: check!
                                 state.mode = ""
@@ -297,6 +297,7 @@ def parse(String description) {
                 case 0x02 : // Mode (AVATTO,BEOK, LIDL)
                     switch (getModelGroup()) {
                         case 'AVATTO' :    // AVATTO : mode (enum) 'manual', 'program'; 
+                        case 'BEOK' :     // BEOK: x5hMode
                             if (settings?.logEnable) log.trace "${device.displayName} AVATTO current thermostatMode was ${device.currentState('thermostatMode').value}"
                             if (device.currentState("thermostatMode").value == "off") {
                                 if (settings?.logEnable) log.warn "ignoring 0x02 command in off mode"
@@ -314,12 +315,11 @@ def parse(String description) {
                                 }
                                 if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode reported is: <b>${thermostatMode}</b> (dp=${dp}, fncmd=${fncmd})"}
                                 else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: <b>${thermostatMode}</b>"}
-                                sendEvent(name: "thermostatMode", value: thermostatMode, displayed: true)
+                                sendEvent(name: "thermostatMode", value: thermostatMode)
                                 state.lastThermostatMode = thermostatMode
                             }
                             break
                         case 'MOES' :    // MOES: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
-                        case 'BEOK' :    // BEOK: x5hMode
                             def mode
                             if (fncmd != 0) {     
                                 mode = "auto"    // scheduled
@@ -334,7 +334,7 @@ def parse(String description) {
                             if (settings?.logEnable) log.trace "BEOK/MOES (dp=2) thermostatMode = ${mode}"                        
                             if (settings?.logEnable) {log.info "${device.displayName} BEOK/MOES  (dp=2) thermostatMode reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
                             else if (settings?.txtEnable) {log.info "${device.displayName} BEOK/MOES (dp=2) thermostatMode reported is: ${mode}"}
-                            sendEvent(name: "thermostatMode", value: mode, displayed: true)
+                            sendEvent(name: "thermostatMode", value: mode)
                             state.lastThermostatMode = mode 
                             break    // no more processing for BEOK!
                         case 'BRT-100' :    // BRT-100 Thermostat heatsetpoint # 0x0202 #
@@ -350,9 +350,6 @@ def parse(String description) {
                 case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // BEOK x5hWorkingStatus (operatingState) !
                     if (settings?.logEnable) log.trace "processing command dp=${dp} fncmd=${fncmd} (lastThermostatMode=${state.lastThermostatMode})"
                     switch (getModelGroup()) {
-                        case 'MOES' :
-                            if (settings?.logEnable) {log.warn "${device.displayName} IGNORING dp=${dp}, fncmd=${fncmd} command for BSEED/MOES while in <b>${device.currentValue("thermostatMode", true)}</b> thermostatMode!"}
-                            break    // shouldn't come here ... TODO!
                         case 'AVATTO' :
                         case 'BEOK' :
                             def thermostatMode = fncmd == 0 ? "heat" : "auto"    // inverted!
@@ -362,15 +359,18 @@ def parse(String description) {
                                     setManualMode()    // TODO - check for MOES - will not pass here !!!!
                                 }
                             }
-                            if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode reported is: $thermostatMode (dp=${dp}, fncmd=${fncmd})"}
+                            if (settings?.logEnable) {log.info "${device.displayName} Thermostat mode reported is: ${thermostatMode} (dp=${dp}, fncmd=${fncmd})"}
                             else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: ${thermostatMode}"}
                             sendEvent(name: "thermostatMode", value: thermostatMode, displayed: true)    // mode was confirmed from the Preset info data...
                             state.lastThermostatMode = thermostatMode
                             // TODO !! check !!
                             sendThermostatOperatingStateEvent(fncmd == 1 ? "heating" : "idle")    // "thermostatOperatingState"
-                            if (settings?.logEnable) {log.info "${device.displayName} Thermostat working status (operatingState) reported is: $mode (dp=${dp}, fncmd=${fncmd})"}
-                            else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat working status (operatingState) reported is: ${mode}"}
+                            if (settings?.logEnable) {log.info "${device.displayName} Thermostat working status (operatingState) reported is: ${thermostatMode} (dp=${dp}, fncmd=${fncmd})"}
+                            else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat working status (operatingState) reported is: ${thermostatMode}"}
                             break
+                        case 'MOES' :
+                            if (settings?.logEnable) {log.warn "${device.displayName} IGNORING dp=${dp}, fncmd=${fncmd} command for BSEED/MOES while in <b>${device.currentValue("thermostatMode", true)}</b> thermostatMode!"}
+                            break    // shouldn't come here ... TODO!
                         case 'BRT-100' :
                         case 'TEST2' :
                         case 'TEST3' :    // Thermostat current temperature
@@ -667,8 +667,8 @@ def processTuyaHeatSetpointReport( fncmd )
     }
     setpointValue = setpointValue.round(1)
     if (settings?.txtEnable) log.info "${device.displayName} heatingSetpoint is: ${setpointValue}"+"\u00B0"+"C"
-    sendEvent(name: "heatingSetpoint", value: setpointValue, unit: "\u00B0"+"C", displayed: true)
-    sendEvent(name: "thermostatSetpoint", value: setpointValue, unit: "\u00B0"+"C", displayed: false)        // Google Home compatibility
+    sendEvent(name: "heatingSetpoint", value: setpointValue, unit: "\u00B0"+"C")
+    sendEvent(name: "thermostatSetpoint", value: setpointValue, unit: "\u00B0"+"C")        // Google Home compatibility
     if (setpointValue == state.setpoint)  {
         state.setpoint = 0
     }                        
@@ -702,7 +702,7 @@ def processTuyaTemperatureReport( fncmd )
         log.warn "auto correct patch for temperature!"
     }
     if (settings?.txtEnable) log.info "${device.displayName} temperature is: ${currentTemperatureValue}"+"\u00B0"+"C"
-    sendEvent(name: "temperature", value: currentTemperatureValue, unit: "\u00B0"+"C", displayed: true)
+    sendEvent(name: "temperature", value: currentTemperatureValue, unit: "\u00B0"+"C")
 }
 
 def processTuyaCalibration( dp, fncmd )
@@ -790,7 +790,7 @@ Holiday -> [3] for attribute 0x0401
         runIn(2, sendTuyaBoostModeOff)    // also turn boost off!
     }
 
-    sendEvent(name: "thermostatMode", value: mode, displayed: true)    // mode was confirmed from the Preset info data...
+    sendEvent(name: "thermostatMode", value: mode)    // mode was confirmed from the Preset info data...
     state.lastThermostatMode = mode
     
     // TODO - change tehrmostatPreset depending on preset ?
@@ -861,7 +861,7 @@ def processTuyaBoostModeReport( fncmd )
     def boostMode = fncmd == 0 ? "off" : "on"                // 0:"off" : 1:"boost in progress"
     if (settings?.txtEnable) log.info "${device.displayName} Boost mode is: $boostMode (0x${fncmd})"
     if (boostMode == "on") {
-        sendEvent(name: "thermostatMode", value: "emergency heat", displayed: false)
+        sendEvent(name: "thermostatMode", value: "emergency heat")
         state.lastThermostatMode = "emergency heat"
         sendThermostatOperatingStateEvent("heating")
     }
@@ -893,7 +893,7 @@ private int getTuyaAttributeValue(ArrayList _data) {
 }
 
 def sendThermostatOperatingStateEvent( st ) {
-    sendEvent(name: "thermostatOperatingState", value: st, displayed: true)
+    sendEvent(name: "thermostatOperatingState", value: st)
     state.lastThermostatOperatingState = st
 }
 
@@ -920,7 +920,7 @@ def sendTuyaBoostModeOff() {
     ArrayList<String> cmds = []
     if (settings?.txtEnable) log.info "${device.displayName} turning Boost mode off"
     sendThermostatOperatingStateEvent( guessThermostatOperatingState() )
-    //sendEvent(name: "thermostatOperatingState", value: guessThermostatOperatingState(), displayed: false)
+    //sendEvent(name: "thermostatOperatingState", value: guessThermostatOperatingState())
     cmds = sendTuyaCommand("04", DP_TYPE_BOOL, "00")
     sendZigbeeCommands( cmds )    
 }
@@ -1089,8 +1089,8 @@ def setHeatingSetpoint( temperature ) {
     if (tempDouble > settings?.maxTemp.value ) tempDouble = settings?.maxTemp.value
     if (tempDouble < settings?.minTemp.value ) tempDouble = settings?.minTemp.value
     tempDouble = tempDouble.round(1)
-    sendEvent(name: "heatingSetpoint", value: tempDouble, unit: "\u00B0"+"C", displayed: true)
-    sendEvent(name: "thermostatSetpoint", value: tempDouble, unit: "\u00B0"+"C", displayed: true)
+    sendEvent(name: "heatingSetpoint", value: tempDouble, unit: "\u00B0"+"C")
+    sendEvent(name: "thermostatSetpoint", value: tempDouble, unit: "\u00B0"+"C")
     updateDataValue("lastRunningMode", "heat")
     
     state.heatingSetPointRetry = 0
@@ -1104,7 +1104,7 @@ def setCoolingSetpoint(temperature){
         temperature = (temperature + 0.5 ) as int
         if (settings?.logEnable) log.trace "corrected temperature: ${temperature}"
     }
-    sendEvent(name: "coolingSetpoint", value: temperature, unit: "\u00B0"+"C", displayed: false)
+    sendEvent(name: "coolingSetpoint", value: temperature, unit: "\u00B0"+"C")
 }
 
 def heat(){
@@ -1494,8 +1494,8 @@ def initialize() {
 }
 
 def setDeviceLimits() { // for google and amazon compatability
-    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "°C", isStateChange: true, displayed: false)
-	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true, displayed: false)
+    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "°C", isStateChange: true)
+	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true)
     updateDataValue("lastRunningMode", "heat")
 	if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
 }	
