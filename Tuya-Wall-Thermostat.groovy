@@ -33,13 +33,13 @@
  * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
  * ver. 1.2.7 2022-11-05 kkossev  - BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
  *                                  supressed dp=9 BRT-100 unknown function warning; 
- * ver. 1.2.8 2022-11-06 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored
+ * ver. 1.2.8 2022-11-20 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix
  *
  *
 */
 
 def version() { "1.2.8" }
-def timeStamp() {"2022/11/06 12:25 AM"}
+def timeStamp() {"2022/11/20 8:37 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -347,7 +347,7 @@ def parse(String description) {
                             break
                     }                   
                     break
-                case 0x03 :    // Scheduled/Manual Mode or // Thermostat current temperature (in decidegrees)    // BEOK x5hWorkingStatus (thermostatOperatingState) !
+                case 0x03 :    // BEOK x5hWorkingStatus (thermostatOperatingState) !
                     if (settings?.logEnable) log.trace "processing command dp=${dp} fncmd=${fncmd} (lastThermostatMode=${state.lastThermostatMode})"
                     switch (getModelGroup()) {
                         case 'AVATTO' :
@@ -1206,11 +1206,12 @@ def updated() {
     if (settings?.txtEnable) log.info "Force manual is <b>${forceManual}</b>; Resend failed is <b>${resendFailed}</b>"
     if (settings?.txtEnable) log.info "Debug logging is <b>${logEnable}</b>; Description text logging is <b>${txtEnable}</b>"
     if (logEnable==true) {
-        runIn(86400, logsOff)    // turn off debug logging after 24 hours
+        runIn(86400, logsOff, [overwrite: true, misfire: "ignore"])    // turn off debug logging after 24 hours
     }
     else {
         unschedule(logsOff)
     }
+    runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
     def fncmd
     def dp
     // tempCalibration
@@ -1374,7 +1375,7 @@ def checkDriverVersion() {
 def setPresent() {
     if (device.currentValue("presence", true) != "present") {
     	sendEvent(name: "presence", value: "present") 
-        runIn( defaultPollingInterval, pollPresence, [overwrite: true])
+        runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
     }
     state.notPresentCounter = 0
 }
@@ -1416,7 +1417,7 @@ def checkIfNotPresent() {
 def pollPresence() {
     if (logEnable) log.debug "${device.displayName} pollPresence()"
     checkIfNotPresent()
-    runIn( defaultPollingInterval, pollPresence, [overwrite: true])
+    runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
 }
 
 
@@ -1475,7 +1476,7 @@ def initialize() {
     if (true) "${device.displayName} Initialize()..."
     unschedule()
     initializeVars()
-    runIn( defaultPollingInterval, pollPresence, [overwrite: true])
+    runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
     setDeviceLimits()
     installed()
     updated()
