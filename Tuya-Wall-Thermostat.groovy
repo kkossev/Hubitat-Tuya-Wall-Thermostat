@@ -33,13 +33,13 @@
  * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
  * ver. 1.2.7 2022-11-05 kkossev  - BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
  *                                  supressed dp=9 BRT-100 unknown function warning; 
- * ver. 1.2.8 2022-11-20 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix
+ * ver. 1.2.8 2022-11-22 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; 
  *
  *
 */
 
 def version() { "1.2.8" }
-def timeStamp() {"2022/11/20 8:37 PM"}
+def timeStamp() {"2022/11/22 6:31 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -84,6 +84,8 @@ metadata {
         command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: ["off", "low", "medium", "high"], description: "Set LCD brightness for BEOK thermostats"] ]
         
         command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
+        command "resetStats", [[name: "Reset Statistics" ]]
+        
         
         // (AVATTO)
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_ye5jkfsb",  deviceJoinName: "AVATTO Wall Thermostat" // ME81AH 
@@ -199,7 +201,8 @@ private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
 // Parse incoming device messages to generate events
 def parse(String description) {
     checkDriverVersion()
-    if (state.rxCounter != null) state.rxCounter = state.rxCounter + 1
+    incRxCtr()
+    //if (state.rxCounter != null) state.rxCounter = state.rxCounter + 1
     setPresent()
     //if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
@@ -236,33 +239,34 @@ def parse(String description) {
             }
             if (settings?.logEnable) log.debug "${device.displayName} sending time data : ${cmds}"
             cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
-            if (state.txCounter != null) state.txCounter = state.txCounter + 1
-            state.old_dp = ""
-            state.old_fncmd = ""
-            
-        } else if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "0B") {    // ZCL Command Default Response
+            incTxCtr()
+            setLastRx( -1, -1)
+        } 
+        else if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "0B") {    // ZCL Command Default Response
             String clusterCmd = descMap?.data[0]
             def status = descMap?.data[1]            
             if (settings?.logEnable) log.debug "${device.displayName} device has received Tuya cluster ZCL command 0x${clusterCmd} response 0x${status} data = ${descMap?.data}"
-            state.old_dp = ""
-            state.old_fncmd = ""
+            setLastRx( -1, -1)
             if (status != "00") {
                 if (settings?.logEnable) log.warn "${device.displayName} ATTENTION! manufacturer = ${device.getDataValue("manufacturer")} group = ${getModelGroup()} unsupported Tuya cluster ZCL command 0x${clusterCmd} response 0x${status} data = ${descMap?.data} !!!"                
             }
             
-        } else if ((descMap?.clusterInt==CLUSTER_TUYA) && (descMap?.command == "01" || descMap?.command == "02")) {
+        } 
+        else if ((descMap?.clusterInt==CLUSTER_TUYA) && (descMap?.command == "01" || descMap?.command == "02")) {
             def transid = zigbee.convertHexToInt(descMap?.data[1])           // "transid" is just a "counter", a response will have the same transid as the command
             def dp = zigbee.convertHexToInt(descMap?.data[2])                // "dp" field describes the action/message of a command frame
             def dp_id = zigbee.convertHexToInt(descMap?.data[3])             // "dp_identifier" is device dependant
             def fncmd = getTuyaAttributeValue(descMap?.data)                 // 
-            if (dp == state.old_dp && fncmd == state.old_fncmd) {
+            if (isDuplicated( dp, fncmd )) {
                 if (settings?.logEnable) log.debug "(duplicate) transid=${transid} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd} command=${descMap?.command} data = ${descMap?.data}"
-                if ( state.duplicateCounter != null ) state.duplicateCounter = state.duplicateCounter +1
+                //if ( state.duplicateCounter != null ) state.duplicateCounter = state.duplicateCounter +1
+                incDupeCtr()
                 return
             }
-            if (settings?.logEnable) log.debug "${device.displayName} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd}"
-            state.old_dp = dp
-            state.old_fncmd = fncmd
+            else {
+                if (settings?.logEnable) log.debug "${device.displayName} dp_id=${dp_id} <b>dp=${dp}</b> fncmd=${fncmd}"
+                setLastRx( dp, fncmd)
+            }
             // the switch cases below default to dp_id = "01"
             switch (dp) {
                 case 0x01 :  // (01) switch state : On / Off
@@ -1355,19 +1359,27 @@ def factoryReset( yes ) {
     sendZigbeeCommands( cmds )     
 }
 
+
 def driverVersionAndTimeStamp() {version()+' '+timeStamp()}
 
 def checkDriverVersion() {
-    if (state.driverVersion != null && driverVersionAndTimeStamp() == state.driverVersion) {
-    }
-    else {
+    if (state.driverVersion == null || driverVersionAndTimeStamp() != state.driverVersion) {
         if (txtEnable==true) log.debug "${device.displayName} updating the settings from the current driver version ${state.driverVersion} to the new version ${driverVersionAndTimeStamp()}"
         initializeVars( fullInit = false ) 
-        state.driverVersion = driverVersionAndTimeStamp()
         if (device.currentValue("presence", true) == null) {
         	sendEvent(name: "presence", value: "unknown") 
         }
-        
+        if (state.driverVersion <= "1.2.8 2022/11/22 8:56 AM" ) {
+            state.remove("rxCounter")
+            state.remove("txCounter")
+            state.remove("old_dp")
+            state.remove("old_fncmd")
+            resetStats()
+        }
+        if (state.lastRx == null || state.stats == null) {
+            resetStats()
+        }
+        state.driverVersion = driverVersionAndTimeStamp()
     }
 }
 
@@ -1387,25 +1399,8 @@ def checkIfNotPresent() {
         if (state.notPresentCounter >= presenceCountTreshold) {
             if (device.currentValue("presence", true) != "not present") {
     	        sendEvent(name: "presence", value: "not present")
-                //state.lastPresenceState = "not present"
                 if (logEnable==true) log.warn "${device.displayName} not present!"
             }
-            /*            
-            if (!(device.currentValue('powerSource', true) in ['unknown'])) {
-    	        powerSourceEvent("unknown")
-                if (settings?.txtEnable) log.warn "${device.displayName} is not present!"
-            }
-            */
-            /*
-            if (!(device.currentValue('motion', true) in ['inactive', '?'])) {
-                handleMotion(false, isDigital=true)
-                if (settings?.txtEnable) log.warn "${device.displayName} forced motion to '<b>inactive</b>"
-            }
-            if (safeToInt(device.currentValue('battery', true)) != 0) {
-                if (settings?.txtEnable) log.warn "${device.displayName} forced battery to '<b>0 %</b>"
-                sendBatteryEvent( 0, isDigital=true )
-            }
-            */
         }
     }
     else {
@@ -1431,19 +1426,16 @@ void initializeVars( boolean fullInit = true ) {
     if (settings?.txtEnable) log.info "${device.displayName} InitializeVars()... fullInit = ${fullInit}"
     if (fullInit == true ) {
         state.clear()
+        resetStats()
         state.driverVersion = driverVersionAndTimeStamp()
     }
     //
-    state.old_dp = ""
-    state.old_fncmd = ""
+    setLastRx( -1, -1)
     state.mode = ""
     state.setpoint = 0
     state.packetID = 0
     state.heatingSetPointRetry = 0
     state.modeSetRetry = 0
-    state.rxCounter = 0
-    state.txCounter = 0
-    state.duplicateCounter = 0
     //
     if (fullInit == true || state.lastThermostatMode == null) state.lastThermostatMode = "unknown"
     if (fullInit == true || state.lastThermostatOperatingState == null) state.lastThermostatOperatingState = "unknown"
@@ -1535,7 +1527,7 @@ private sendTuyaCommand(dp, dp_type, fncmd) {
     ArrayList<String> cmds = []
     cmds += zigbee.command(CLUSTER_TUYA, SETDATA, PACKET_ID + dp + dp_type + zigbee.convertToHexString((int)(fncmd.length()/2), 4) + fncmd )
     if (settings?.logEnable) log.trace "sendTuyaCommand = ${cmds}"
-    if (state.txCounter != null) state.txCounter = state.txCounter + 1
+    incTxCtr()
     return cmds
 }
 
@@ -1544,8 +1536,8 @@ void sendZigbeeCommands(ArrayList<String> cmd) {
     hubitat.device.HubMultiAction allActions = new hubitat.device.HubMultiAction()
     cmd.each {
             allActions.add(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE))
-            if (state.txCounter != null) state.txCounter = state.txCounter + 1
     }
+    incTxCtr()
     sendHubCommand(allActions)
 }
 
@@ -1675,13 +1667,75 @@ def zTest( dpCommand, dpValue, dpTypeString ) {
     sendZigbeeCommands( sendTuyaCommand(dpCommand, dpType, dpValHex) )
 }
 
-
-def test() {
-    
-device.updateSetting("brightness", [value:"3", type:"enum"])
-
+def resetStats() {
+    Map stats = [
+        rxCtr : 0,
+        txCtr : 0,
+        dupeCtr : 0
+    ]
+    Map lastRx = [
+        dp : -1,
+        fncmd : -1
+    ]
+    state.stats =  mapToJsonString( stats )
+    state.lastRx =  mapToJsonString( lastRx )
+    if (txtEnable==true) log.info "${device.displayName} Statistics were reset. Press F5 to refresh the device page"
 }
-    
+
+
+String mapToJsonString( Map map) {
+    if (map==null || map==[:]) return ""
+    String str = JsonOutput.toJson(map)
+    return str
+}
+
+Map stringToJsonMap( String str) {
+    if (str==null) return [:]
+    def jsonSlurper = new JsonSlurper()
+    def map = jsonSlurper.parseText( str )
+    return map
+}
+
+private incRxCtr() {
+    try {
+        Map statsMap = stringToJsonMap(state.stats)
+        statsMap['rxCtr'] ++
+        state.stats = mapToJsonString(statsMap)
+    }
+    catch (e) {
+        if (settings?.logEnable) log.warn "${device.displayName} incRxCtr() exception"
+    }
+}
+
+private incTxCtr()   { try {Map statsMap = stringToJsonMap(state.stats); statsMap['txCtr'] ++;   state.stats = mapToJsonString(statsMap) } catch (e) {} }
+private incDupeCtr() { try {Map statsMap = stringToJsonMap(state.stats); statsMap['dupeCtr'] ++; state.stats = mapToJsonString(statsMap) } catch (e) {} }
+
+private setLastRx( int dp, int fncmd) {
+    try {
+        Map lastRxMap = stringToJsonMap(state.lastRx)
+        lastRxMap['dp'] = dp
+        lastRxMap['fncmd'] = fncmd
+        state.lastRx = mapToJsonString(lastRxMap)
+    }
+    catch (e) {
+        if (settings?.logEnable) log.warn "${device.displayName} setLastRx() exception"
+    }
+}
+
+def isDuplicated( int dp, int fncmd ) {
+    Map oldDpFncmd = stringToJsonMap( state.lastRx )
+    if (dp == oldDpFncmd.dp && fncmd == oldDpFncmd.fncmd)
+        return true
+    else
+        return false
+}
+     
+     
+def test() {
+    incRxCtr()
+}
+
+
 /*
     BRT-100 Zigbee network re-pair procedure: After the actuator has completed self-test, long press [X] access to interface, short press '+' to choose WiFi icon,
         short press [X] to confirm this option, long press [X]. WiFi icon will start flashing when in pairing mode.
