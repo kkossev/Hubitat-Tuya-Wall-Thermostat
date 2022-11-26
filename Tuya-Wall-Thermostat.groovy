@@ -33,13 +33,13 @@
  * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
  * ver. 1.2.7 2022-11-05 kkossev  - BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
  *                                  supressed dp=9 BRT-100 unknown function warning; 
- * ver. 1.2.8 2022-11-22 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; 
+ * ver. 1.2.8 2022-11-26 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is sunced every hour for BEOK;
  *
  *
 */
 
 def version() { "1.2.8" }
-def timeStamp() {"2022/11/22 6:31 PM"}
+def timeStamp() {"2022/11/26 11:36 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -202,45 +202,13 @@ private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
 def parse(String description) {
     checkDriverVersion()
     incRxCtr()
-    //if (state.rxCounter != null) state.rxCounter = state.rxCounter + 1
     setPresent()
     //if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
         Map descMap = zigbee.parseDescriptionAsMap(description)
         if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "24") {        //getSETTIME
-            // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)	local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
-            // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).                 // Y2K = 946684800 
-            if (settings?.logEnable) log.debug "${device.displayName} time synchronization request from device, descMap = ${descMap}"
-            def offset = 0
-            def offsetHours = 0
-            Calendar cal=Calendar.getInstance();    //it return same time as new Date()
-            def hour = cal.get(Calendar.HOUR_OF_DAY)
-            try {
-                offset = location.getTimeZone().getOffset(new Date().getTime()) 
-                offsetHours = (offset / 3600000) as int
-                if (settings?.logEnable) log.debug "${device.displayName} timezone offset of current location is ${offset} (${offsetHours} hours), current hour is ${hour} h"
-            } catch(e) {
-                log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. Setting timezone offset to zero"
-            }
-            //
-            def cmds
-            if (isBEOK()) {
-                // TODO - do NOT synchronize the clock between 00:00 and 09:00 local time !!
-                if (hour >= 8) {
-                    cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)((now() - 3600000L * (8-offsetHours))/1000),8) +  zigbee.convertToHexString((int)((now() + 3600000L * 8) / 1000), 8))    // works OK between 8 and 24 h
-                }
-                else {
-                    if (settings?.logEnable) log.debug "${device.displayName} SKIPPED time synchronization (current hour is ${hour} h)"
-                    return null
-                }
-            }
-            else {
-                cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
-            }
-            if (settings?.logEnable) log.debug "${device.displayName} sending time data : ${cmds}"
-            cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
-            incTxCtr()
-            setLastRx( -1, -1)
+            logDebug "time synchronization request from device, descMap = ${descMap}"
+            syncTuyaDateTime()
         } 
         else if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "0B") {    // ZCL Command Default Response
             String clusterCmd = descMap?.data[0]
@@ -284,8 +252,11 @@ def parse(String description) {
                                 if (settings?.logEnable) {log.info "${device.displayName} switchState reported is: ON, restoring last lastThermostatMode ${state.lastThermostatMode} (dp=${dp}, fncmd=${fncmd})"}
                                 sendEvent(name: "thermostatOperatingState", value: state.lastThermostatOperatingState)
                             }                        
-                            if (switchState == state.mode) {    // TODO: check!
-                                state.mode = ""
+                            if (switchState == getLastMode())  {
+                                if (settings?.logEnable) {log.debug "${device.displayName} last sent mode ${getLastMode()} is confirmed from the device (dp=${dp}, fncmd=${fncmd})"}
+                            }
+                            else {
+                                if (settings?.logEnable) {log.warn "${device.displayName} last sent mode ${getLastMode()} DIFFERS from the mode received from the device ${switchState} (dp=${dp}, fncmd=${fncmd})"}
                             }
                             break
                         case 'BRT-100' :    // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
@@ -644,6 +615,41 @@ def parse(String description) {
 }
 
 
+def syncTuyaDateTime() {
+    // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)	local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
+    // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).                 // Y2K = 946684800 
+    def offset = 0
+    def offsetHours = 0
+    Calendar cal=Calendar.getInstance();    //it return same time as new Date()
+    def hour = cal.get(Calendar.HOUR_OF_DAY)
+    try {
+        offset = location.getTimeZone().getOffset(new Date().getTime()) 
+        offsetHours = (offset / 3600000) as int
+        logDebug "timezone offset of current location is ${offset} (${offsetHours} hours), current hour is ${hour} h"
+    } catch(e) {
+        log.error "${device.displayName} cannot resolve current location. please set location in Hubitat location setting. Setting timezone offset to zero"
+    }
+    //
+    def cmds
+    if (isBEOK()) {
+        // do NOT synchronize the clock between 00:00 and 09:00 local time !!
+        if (hour >= 8) {
+            cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)((now() - 3600000L * (8-offsetHours))/1000),8) +  zigbee.convertToHexString((int)((now() + 3600000L * 8) / 1000), 8))    // works OK between 8 and 24 h
+        }
+        else {
+            logDebug "skipped time synchronization (current hour is ${hour} h)"
+            return
+        }
+    }
+    else {
+        cmds = zigbee.command(CLUSTER_TUYA, SETTIME, "0008" +zigbee.convertToHexString((int)(now()/1000),8) +  zigbee.convertToHexString((int)((now()+offset)/1000), 8))
+    }
+    logDebug "sending time data : ${cmds}"
+    cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
+    incTxCtr()
+    setLastRx( -1, -1)
+}
+
 
 def processTuyaHeatSetpointReport( fncmd )
 {                        
@@ -918,6 +924,7 @@ def sendTuyaBoostModeOff() {
     sendZigbeeCommands( cmds )    
 }
 
+// called from setThermostatMode( mode ) only
 def sendTuyaThermostatMode( mode ) {
     ArrayList<String> cmds = []
     def dp = ""
@@ -981,7 +988,7 @@ def sendTuyaThermostatMode( mode ) {
             break
         case "emergency heat" :
             if (model in ['BRT-100']) {    // BRT-100
-                state.mode = "emergency heat"
+                //state.mode = "emergency heat"
                 dp = "04"                            
                 fn = "01"
             }
@@ -1002,12 +1009,14 @@ def sendTuyaThermostatMode( mode ) {
     sendZigbeeCommands( cmds )
 }
 
-//  sends TuyaCommand and checks after 4 seconds
+// called from heat() off() auto() ...
+// sends TuyaCommand and checks after 4 seconds
 def setThermostatMode( mode ) {
     if (settings?.logEnable) log.debug "${device.displayName} sending setThermostatMode(${mode})"
-    state.mode = mode
+    setLastTx( mode=mode, isModeSetReq=true)
+    //state.mode = mode
     runIn(4, modeReceiveCheck)
-    return sendTuyaThermostatMode( mode ) // must be last command!
+    sendTuyaThermostatMode( mode )
 }
 
 
@@ -1195,7 +1204,6 @@ def installed() {
     sendEvent(name: "temperature", value: 22.0, unit: "\u00B0"+"C", isStateChange: true)    
     updateDataValue("lastRunningMode", "heat")	
 
-    state.mode = ""
     state.setpoint = 0
     unschedule()
     runEvery1Minute(receiveCheck)    // KK: check
@@ -1412,6 +1420,9 @@ def checkIfNotPresent() {
 def pollPresence() {
     if (logEnable) log.debug "${device.displayName} pollPresence()"
     checkIfNotPresent()
+    if (isBEOK())  {
+        syncTuyaDateTime()
+    }
     runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
 }
 
@@ -1431,7 +1442,7 @@ void initializeVars( boolean fullInit = true ) {
     }
     //
     setLastRx( -1, -1)
-    state.mode = ""
+    //setLastTx('unknown', 'false')
     state.setpoint = 0
     state.packetID = 0
     state.heatingSetPointRetry = 0
@@ -1483,23 +1494,28 @@ def setDeviceLimits() { // for google and amazon compatability
 }	
 
 def modeReceiveCheck() {
-    if (settings?.resendFailed == false )  return
+    if (settings?.resendFailed == false )
+        return
+    Map lastTx = stringToJsonMap( state.lastTx )
+    if (lastTx.isModeSetReq == false)
+        return
     
-    if (state.mode != "") {
-        if (settings?.logEnable) log.warn "${device.displayName} modeReceiveCheck() <b>failed</b>"
-        /*
-        if (settings?.logEnable) log.debug "${device.displayName} resending mode command :"+state.mode
-        def cmds = setThermostatMode(state.mode)
-        cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
-        */
+    if (lastTx.mode != device.currentState('thermostatMode', true).value) {
+        if (settings?.logEnable) log.warn "${device.displayName} modeReceiveCheck() <b>failed</b> (expected ${lastTx.mode}, current ${device.currentState('thermostatMode', true).value})"
+        if (settings?.logEnable) log.debug "${device.displayName} resending mode command : ${lastTx.mode}"
+        incTxFailCtr()
+        setThermostatMode( lastTx.mode )
     }
     else {
-        if (settings?.logEnable) log.debug "${device.displayName} modeReceiveCheck() OK"
+        if (settings?.logEnable) log.debug "${device.displayName} modeReceiveCheck(${lastTx.mode}) OK"
+        lastTx.isModeSetReq = false    // setting mode was successfuly confimed, no need for further checks
+        state.lastTx = mapToJsonString( lastTx )
     }
 }
 
 def setpointReceiveCheck() {
-    if (settings?.resendFailed == false )  return
+    if (settings?.resendFailed == false )
+        return
 
     if (state.setpoint != 0 ) {
         state.heatingSetPointRetry = state.heatingSetPointRetry + 1
@@ -1517,18 +1533,22 @@ def setpointReceiveCheck() {
     }
 }
 
-//  unconditionally scheduled Every1Minute from installed() ..
+//  receiveCheck() is unconditionally scheduled Every1Minute from installed() ..
 def receiveCheck() {
     modeReceiveCheck()
     setpointReceiveCheck()
 }
 
-private sendTuyaCommand(dp, dp_type, fncmd) {
+private sendTuyaCommand(dp, dp_type, fncmd, delay=200) {
     ArrayList<String> cmds = []
-    cmds += zigbee.command(CLUSTER_TUYA, SETDATA, PACKET_ID + dp + dp_type + zigbee.convertToHexString((int)(fncmd.length()/2), 4) + fncmd )
-    if (settings?.logEnable) log.trace "sendTuyaCommand = ${cmds}"
+    cmds += zigbee.command(CLUSTER_TUYA, SETDATA, [:], delay, PACKET_ID + dp + dp_type + zigbee.convertToHexString((int)(fncmd.length()/2), 4) + fncmd )
+    if (settings?.logEnable) log.trace "${device.displayName} sendTuyaCommand = ${cmds}"
     incTxCtr()
     return cmds
+}
+
+private wakeUpTuya() {
+    sendZigbeeCommands(zigbee.readAttribute(0x0000, 0x0004, [:], delay=50) )
 }
 
 void sendZigbeeCommands(ArrayList<String> cmd) {
@@ -1671,14 +1691,20 @@ def resetStats() {
     Map stats = [
         rxCtr : 0,
         txCtr : 0,
-        dupeCtr : 0
+        dupeCtr : 0,
+        txFailCtr : 0
     ]
     Map lastRx = [
         dp : -1,
         fncmd : -1
     ]
-    state.stats =  mapToJsonString( stats )
+    Map lastTx = [
+        mode : "unknown",
+        isModeSetReq : false
+    ]
+    state.stats  =  mapToJsonString( stats )
     state.lastRx =  mapToJsonString( lastRx )
+    state.lastTx =  mapToJsonString( lastTx )
     if (txtEnable==true) log.info "${device.displayName} Statistics were reset. Press F5 to refresh the device page"
 }
 
@@ -1707,8 +1733,9 @@ private incRxCtr() {
     }
 }
 
-private incTxCtr()   { try {Map statsMap = stringToJsonMap(state.stats); statsMap['txCtr'] ++;   state.stats = mapToJsonString(statsMap) } catch (e) {} }
-private incDupeCtr() { try {Map statsMap = stringToJsonMap(state.stats); statsMap['dupeCtr'] ++; state.stats = mapToJsonString(statsMap) } catch (e) {} }
+private incTxCtr()     { try {Map statsMap = stringToJsonMap(state.stats); statsMap['txCtr'] ++;     state.stats = mapToJsonString(statsMap) } catch (e) {statsMap['txCtr']=0} }
+private incDupeCtr()   { try {Map statsMap = stringToJsonMap(state.stats); statsMap['dupeCtr'] ++;   state.stats = mapToJsonString(statsMap) } catch (e) {statsMap['dupeCtr']=0} }
+private incTxFailCtr() { Map statsMap = stringToJsonMap(state.stats); try {statsMap['txFailCtr']++ } catch (e) {statsMap['txFailCtr']=0}; state.stats = mapToJsonString(statsMap)}
 
 private setLastRx( int dp, int fncmd) {
     try {
@@ -1722,6 +1749,33 @@ private setLastRx( int dp, int fncmd) {
     }
 }
 
+private setLastTx( String mode=null, Boolean isModeSetReq=null) {
+    try {
+        Map lastTxMap = stringToJsonMap(state.lastTx)
+        if (mode != null) {
+            lastTxMap['mode'] = mode
+        }
+        if (isModeSetReq != null) {
+            lastTxMap['isModeSetReq'] = isModeSetReq
+        }
+        state.lastTx = mapToJsonString(lastTxMap)
+    }
+    catch (e) {
+        if (settings?.logEnable) log.warn "${device.displayName} setLastTx() exception"
+    }
+}
+
+def getLastMode() {
+    try {    
+        Map lastTx = stringToJsonMap( state.lastTx )
+        return lastTx.mode
+    }
+    catch (e) {
+        if (settings?.logEnable) log.warn "${device.displayName} getLastMode() exception"
+        return "exception"
+    }
+}
+
 def isDuplicated( int dp, int fncmd ) {
     Map oldDpFncmd = stringToJsonMap( state.lastRx )
     if (dp == oldDpFncmd.dp && fncmd == oldDpFncmd.fncmd)
@@ -1729,6 +1783,25 @@ def isDuplicated( int dp, int fncmd ) {
     else
         return false
 }
+
+def logDebug(msg) {
+    if (settings?.logEnable == null || settings?.logEnable == true) {
+        log.debug "${device.displayName} " + msg
+    }
+}
+
+def logInfo(msg) {
+    if (settings?.txtEnable == null || settings?.txtEnable == true) {
+        log.info "${device.displayName} " + msg
+    }
+}
+
+def logWarn(msg) {
+    if (settings?.logEnable == null || settings?.logEnable == true) {
+        log.warn "${device.displayName} " + msg
+    }
+}
+
      
      
 def test() {
