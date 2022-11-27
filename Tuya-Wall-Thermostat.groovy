@@ -33,14 +33,15 @@
  * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
  * ver. 1.2.7 2022-11-05 kkossev  - BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
  *                                  supressed dp=9 BRT-100 unknown function warning; 
- * ver. 1.2.8 2022-11-27 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is synced every hour for BEOK;
- *                                  modeReceiveCheck() and setpointReceiveCheck() refactored
+ * ver. 1.2.8 2022-11-27 kkossev  - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is synced every hour for BEOK;
+ *                                  modeReceiveCheck() and setpointReceiveCheck() refactored; 
+ * ver. 1.2.9 2022-11-27 kkossev  - (dev. branch) bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; 
  *
  *
 */
 
-def version() { "1.2.8" }
-def timeStamp() {"2022/11/27 11:15 AM"}
+def version() { "1.2.9" }
+def timeStamp() {"2022/11/27 8:17 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -276,12 +277,14 @@ def parse(String description) {
                         case 'AVATTO' :    // AVATTO : mode (enum) 'manual', 'program'; 
                         case 'BEOK' :     // BEOK: x5hMode
                             logDebug "AVATTO/BEOK current thermostatMode was ${device.currentState('thermostatMode').value}"
+                            /* commented out 1/27/2022
                             if (device.currentState("thermostatMode").value == "off") {
                                 logWarn "ignoring 0x02 command in off mode"
                                 sendEvent(name: "thermostatOperatingState", value: "idle")
                                 break    // ignore 0x02 command if thermostat was switched off !!
                             }
                             else {    // previous thermosatMode was heat or auto
+                            */
                                 logDebug "previous thermosatMode was  ${device.currentState('thermostatMode').value}..."
                                 def thermostatMode = fncmd == 0 ? "heat" : "auto"    // inverted!
                                 if (thermostatMode == "auto") {
@@ -294,7 +297,7 @@ def parse(String description) {
                                 else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: <b>${thermostatMode}</b>"}
                                 sendEvent(name: "thermostatMode", value: thermostatMode)
                                 state.lastThermostatMode = thermostatMode
-                            }
+                           /* } */
                             break
                         case 'MOES' :    // MOES thermostatMode: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
                             def mode
@@ -1123,7 +1126,7 @@ def setManualMode() {
 def switchThermostatOn() {
     if (settings?.logEnable) log.debug "${device.displayName} switching On!"
     ArrayList<String> cmds = []
-    cmds = sendTuyaCommand("01", DP_TYPE_BOOL, "01")
+    cmds = sendTuyaCommand("01", DP_TYPE_BOOL, "01", delay=2750)    // increased delay to 2750 on 1/27/2022
     return cmds
 }
 
@@ -1152,28 +1155,28 @@ def getModelGroup() {
 
 
 def sendSupportedThermostatModes() {
-    def supportedThermostatModes = "[]"
+    def supportedThermostatModes = []
     switch (getModelGroup()) {
         case 'AVATTO' :
         case 'MOES' :
         case 'BEOK' :
-            supportedThermostatModes = '[off, heat, auto]'
+            supportedThermostatModes = ["off", "heat", "auto"]
             break
         case 'BRT-100' :  // BRT-100
-            supportedThermostatModes = '[off, heat, auto, emergency heat]'
+            supportedThermostatModes = ["off", "heat", "auto", "emergency heat"]
             break
         default :
-            supportedThermostatModes = '[off, heat, auto]'
+            supportedThermostatModes = ["off", "heat", "auto"]
             break
     }    
-    sendEvent(name: "supportedThermostatModes", value:  supportedThermostatModes, isStateChange: true)
+    sendEvent(name: "supportedThermostatModes", value:  JsonOutput.toJson(supportedThermostatModes), isStateChange: true)
 }
 
 //  called from initialize()
 def installed() {
     if (settings?.txtEnable) log.info "installed()"
     
-    sendEvent(name: "supportedThermostatFanModes", value: ["auto", "circulate", "on"], isStateChange: true)    
+    sendEvent(name: "supportedThermostatFanModes", value: JsonOutput.toJson(["auto", "circulate", "on"]), isStateChange: true)    
     sendSupportedThermostatModes()
     sendEvent(name: "thermostatMode", value: "heat", isStateChange: true)
     sendEvent(name: "thermostatFanMode", value: "auto", isStateChange: true)
