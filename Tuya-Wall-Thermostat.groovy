@@ -33,13 +33,14 @@
  * ver. 1.2.6 2022-10-16 kkossev  - BEOK: time sync workaround; BEOK: temperature scientific representation bug fix; parameters number/decimal fixes; brightness and maxTemp bug fixes; heatingTemp is always rounded to 0.5; cool() does not switch the thermostat off anymore
  * ver. 1.2.7 2022-11-05 kkossev  - BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
  *                                  supressed dp=9 BRT-100 unknown function warning; 
- * ver. 1.2.8 2022-11-26 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is synced every hour for BEOK;
+ * ver. 1.2.8 2022-11-27 kkossev  - (dev.branch) - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is synced every hour for BEOK;
+ *                                  modeReceiveCheck() and setpointReceiveCheck() refactored
  *
  *
 */
 
 def version() { "1.2.8" }
-def timeStamp() {"2022/11/26 5:52 PM"}
+def timeStamp() {"2022/11/27 11:15 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -174,7 +175,8 @@ def isBSEED() { return isMOES() }
 
 @Field static final Integer presenceCountTreshold = 3
 @Field static final Integer defaultPollingInterval = 3600
-@Field static final Integer MaxRetries = 3
+@Field static final Integer MaxRetries = 5
+@Field static final Integer NOT_SET = -1
                                 
 private getCLUSTER_TUYA()       { 0xEF00 }
 private getSETDATA()            { 0x00 }
@@ -214,7 +216,7 @@ def parse(String description) {
             String clusterCmd = descMap?.data[0]
             def status = descMap?.data[1]            
             if (settings?.logEnable) log.debug "${device.displayName} device has received Tuya cluster ZCL command 0x${clusterCmd} response 0x${status} data = ${descMap?.data}"
-            setLastRx( -1, -1)
+            setLastRx( NOT_SET, NOT_SET)    // -1
             if (status != "00") {
                 if (settings?.logEnable) log.warn "${device.displayName} ATTENTION! manufacturer = ${device.getDataValue("manufacturer")} group = ${getModelGroup()} unsupported Tuya cluster ZCL command 0x${clusterCmd} response 0x${status} data = ${descMap?.data} !!!"                
             }
@@ -647,7 +649,7 @@ def syncTuyaDateTime() {
     logDebug "sending time data : ${cmds}"
     cmds.each{ sendHubCommand(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE)) }
     incTxCtr()
-    setLastRx( -1, -1)
+    setLastRx( NOT_SET, NOT_SET)    // -1
 }
 
 
@@ -668,9 +670,10 @@ def processTuyaHeatSetpointReport( fncmd )
     if (settings?.txtEnable) log.info "${device.displayName} heatingSetpoint is: ${setpointValue}"+"\u00B0"+"C"
     sendEvent(name: "heatingSetpoint", value: setpointValue, unit: "\u00B0"+"C")
     sendEvent(name: "thermostatSetpoint", value: setpointValue, unit: "\u00B0"+"C")        // Google Home compatibility
-    if (setpointValue == state.setpoint)  {
-        state.setpoint = 0
-    }                        
+    //
+    Map lastRxMap = stringToJsonMap( state.lastRx )
+    lastRxMap.setPoint = setpointValue
+    state.lastRx   = mapToJsonString( lastRxMap)      // state.lastRx
 }                        
 
 def processTuyaTemperatureReport( fncmd )
@@ -827,33 +830,6 @@ def processTuyaModes3( dp, data ) {
         // TODO - - change preset ?
     }
 }
-
-/*
-def processTuyaModes4( dp, data ) {
-    // TODO - check for model !
-    // dp = 0x0403 : // preset for moes    
-    if (true) {   
-        def mode
-        if (data == 0) { mode = "holiday" } 
-        else if (data == 1) { mode = "auto" }
-        else if (data == 2) { mode = "manual" }
-        else if (data == 3) { mode = "manual" }
-        else if (data == 4) { mode = "eco" }
-        else if (data == 5) { mode = "boost" }
-        else if (data == 6) { mode = "complex" }
-        else {
-            if (settings?.logEnable) log.warn "${device.displayName} processTuyaModes4: unknown mode: ${data}"
-            return
-        }
-        if (settings?.txtEnable) log.info "${device.displayName} mode is: ${mode}"
-        // TODO - - change thremostatMode depending on mode ?
-    }
-    else {
-        if (settings?.logEnable) log.warn "${device.displayName} processTuyaModes4: model manufacturer ${device.getDataValue('manufacturer')} group = ${getModelGroup()}"
-            return
-    }
-}
-*/
 
 def processTuyaBoostModeReport( fncmd )
 {
@@ -1053,9 +1029,14 @@ def sendTuyaHeatingSetpoint( temperature ) {
             break
     }    
     if (settings?.logEnable) log.debug "${device.displayName} changing setpoint to ${settemp}"
-    state.setpoint = temperature    // KK was settemp !! CHECK !
+    //
+    Map lastTxMap = stringToJsonMap( state.lastTx )
+    lastTxMap.isSetPointReq = true
+    lastTxMap.setPoint = temperature    // BEOK - float value!
+    state.lastTx = mapToJsonString( lastTxMap )    // save everything back to state.lastTx
+    //
     runIn(4, setpointReceiveCheck)
-    sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8))
+    sendZigbeeCommands( sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8)) )
 }
 
 def setThermostatSetpoint( temperature ) {
@@ -1205,7 +1186,7 @@ def installed() {
     sendEvent(name: "temperature", value: 22.0, unit: "\u00B0"+"C", isStateChange: true)    
     updateDataValue("lastRunningMode", "heat")	
 
-    state.setpoint = 0
+    //state.setpoint = 0
     unschedule()
     runEvery1Minute(receiveCheck)    // KK: check
 }
@@ -1382,14 +1363,15 @@ def checkDriverVersion() {
         if (device.currentValue("presence", true) == null) {
         	sendEvent(name: "presence", value: "unknown") 
         }
-        if (state.driverVersion <= "1.2.8 2022/11/22 8:56 AM" ) {
-            state.remove("rxCounter")
-            state.remove("txCounter")
-            state.remove("old_dp")
-            state.remove("old_fncmd")
-            resetStats()
-        }
-        if (state.lastRx == null || state.stats == null) {
+        if (state.rxCounter != null) state.remove("rxCounter")
+        if (state.txCounter != null) state.remove("txCounter")
+        if (state.old_dp != null)    state.remove("old_dp")
+        if (state.old_fncmd != null) state.remove("old_fncmd")
+        if (state.setpoint != null)  state.remove("setpoint")
+        if (state.modeSetRetry != null)  state.remove("modeSetRetry")
+        if (state.heatingSetPointRetry != null)  state.remove("heatingSetPointRetry")
+        //
+        if (state.lastRx == null || state.stats == null || state.lastTx == null) {
             resetStats()
         }
         state.driverVersion = driverVersionAndTimeStamp()
@@ -1446,12 +1428,8 @@ void initializeVars( boolean fullInit = true ) {
         state.driverVersion = driverVersionAndTimeStamp()
     }
     //
-    setLastRx( -1, -1)
-    //setLastTx('unknown', 'false')
-    state.setpoint = 0
+    setLastRx( NOT_SET, NOT_SET)    // -1
     state.packetID = 0
-    state.heatingSetPointRetry = 0
-    state.modeSetRetry = 0
     //
     if (fullInit == true || state.lastThermostatMode == null) state.lastThermostatMode = "unknown"
     if (fullInit == true || state.lastThermostatOperatingState == null) state.lastThermostatOperatingState = "unknown"
@@ -1469,11 +1447,7 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || settings?.sound == null) device.updateSetting("sound", true)    
     if (fullInit == true || settings?.frostProtection == null) device.updateSetting("frostProtection", true)    
     if (fullInit == true || settings?.brightness == null) device.updateSetting("brightness", [value:"3", type:"enum"])
-
-    
     //
-    
-    
 }
 
 def configure() {
@@ -1498,44 +1472,73 @@ def setDeviceLimits() { // for google and amazon compatability
 	if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
 }	
 
+// scheduled for call from setThermostatMode() 4 seconds after the mode was potentiually changed.
+// also, called every 1 minute from receiveCheck()
 def modeReceiveCheck() {
     if (settings?.resendFailed == false )
         return
-    Map lastTx = stringToJsonMap( state.lastTx )
-    if (lastTx.isModeSetReq == false)
+    Map lastTxMap = stringToJsonMap( state.lastTx )
+    if (lastTxMap.isModeSetReq == false)
         return
+    Map statsMap = stringToJsonMap( state.stats )
     
-    if (lastTx.mode != device.currentState('thermostatMode', true).value) {
-        if (settings?.logEnable) log.warn "${device.displayName} modeReceiveCheck() <b>failed</b> (expected ${lastTx.mode}, current ${device.currentState('thermostatMode', true).value})"
-        if (settings?.logEnable) log.debug "${device.displayName} resending mode command : ${lastTx.mode}"
-        incTxFailCtr()
-        setThermostatMode( lastTx.mode )
+    if (lastTxMap.mode != device.currentState('thermostatMode', true).value) {
+        lastTxMap['setModeRetries'] = lastTxMap['setModeRetries'] + 1
+        logWarn "modeReceiveCheck() <b>failed</b> (expected ${lastTxMap['mode']}, current ${device.currentState('thermostatMode', true).value}), retry#${lastTxMap['setModeRetries']}"
+        if (lastTxMap['setModeRetries'] < MaxRetries) {
+            logDebug "resending mode command : ${lastTxMap['mode']}"
+            statsMap['txFailCtr'] = statsMap['txFailCtr'] + 1
+            setThermostatMode( lastTxMap['mode'] )
+        }
+        else {
+            logWarn "modeReceiveCheck(${lastTxMap['mode'] }}) <b>giving up retrying<b/>"
+            lastTxMap['isModeSetReq'] = false    // giving up
+            lastTxMap['setModeRetries'] = 0
+        }
     }
     else {
-        if (settings?.logEnable) log.debug "${device.displayName} modeReceiveCheck(${lastTx.mode}) OK"
-        lastTx.isModeSetReq = false    // setting mode was successfuly confimed, no need for further checks
-        state.lastTx = mapToJsonString( lastTx )
+        logDebug "modeReceiveCheck mode was changed OK to (${lastTxMap['mode']}). No need for further checks."
+        lastTxMap.isModeSetReq = false    // setting mode was successfuly confimed, no need for further checks
+        lastTxMap.setModeRetries = 0
     }
+    state.lastTx = mapToJsonString( lastTxMap )    // save everything back to state.lastTx
+    state.stats  = mapToJsonString( statsMap)      // save everything back to state.stats
 }
 
+
+//
+//  also, called every 1 minute from receiveCheck()
 def setpointReceiveCheck() {
     if (settings?.resendFailed == false )
         return
 
-    if (state.setpoint != 0 ) {
-        state.heatingSetPointRetry = state.heatingSetPointRetry + 1
-        if (state.heatingSetPointRetry < MaxRetries) {
-            if (settings?.logEnable) log.warn "${device.displayName} setpointReceiveCheck(${state.setpoint}) <b>failed<b/>"
-            if (settings?.logEnable) log.debug "${device.displayName} resending setpoint command :"+state.setpoint
-            sendTuyaHeatingSetpoint(state.setpoint)
+    Map lastTxMap = stringToJsonMap( state.lastTx )
+    if (lastTxMap.isSetPointReq == false)
+        return
+    Map statsMap = stringToJsonMap( state.stats )
+    Map lastRxMap = stringToJsonMap( state.lastRx )
+    
+    if (lastTxMap.setPoint != NOT_SET && ((lastTxMap.setPoint as String) != (lastRxMap.setPoint as String))) {
+        lastTxMap.setPointRetries = lastTxMap.setPointRetries + 1
+        if (lastTxMap.setPointRetries < MaxRetries) {
+            logWarn "setpointReceiveCheck(${lastTxMap.setPoint}) <b>failed<b/> (last received is still ${lastRxMap.setPoint})"
+            logDebug "resending setpoint command : ${lastTxMap.setPoint} (retry# ${lastTxMap.setPointRetries})"
+            statsMap.txFailCtr = statsMap.txFailCtr + 1
+            sendTuyaHeatingSetpoint(lastTxMap.setPoint)
         }
         else {
-            if (settings?.logEnable) log.warn "${device.displayName} setpointReceiveCheck(${state.setpoint}) <b>giving up retrying<b/>"
+            logWarn "setpointReceiveCheck(${lastTxMap.setPoint}) <b>giving up retrying<b/>"
+            lastTxMap.isSetPointReq = false
+            lastTxMap.setPointRetries = 0
         }
     }
     else {
-        if (settings?.logEnable) log.debug "${device.displayName} setpointReceiveCheck(${state.setpoint}) OK"
+        logDebug "setpointReceiveCheck setPoint was changed successfuly to (${lastTxMap.setPoint}). No need for further checks."
+        lastTxMap.setPoint = NOT_SET
+        lastTxMap.isSetPointReq = false    
     }
+    state.lastTx = mapToJsonString( lastTxMap )    // save everything back to state.lastTx
+    state.stats  = mapToJsonString( statsMap)      // save everything back to state.stats
 }
 
 //  receiveCheck() is unconditionally scheduled Every1Minute from installed() ..
@@ -1578,21 +1581,22 @@ private getDescriptionText(msg) {
 }
 
 def logsOff(){
-    log.warn "${device.displayName} debug logging disabled..."
+    logInfo "debug logging is disabled"
     device.updateSetting("logEnable",[value:"false",type:"bool"])
 }
 
+// not used
 def controlMode( mode ) {
     ArrayList<String> cmds = []
     
     switch (mode) {
         case "manual" : 
             cmds += sendTuyaCommand("02", DP_TYPE_ENUM, "00")// + sendTuyaCommand("03", DP_TYPE_ENUM, "01")    // iquix code
-            if (settings?.logEnable) log.trace "${device.displayName} sending manual mode : ${cmds}"
+            logDebug "sending manual mode : ${cmds}"
             break
         case "program" :
             cmds += sendTuyaCommand("02", DP_TYPE_ENUM, "01")// + sendTuyaCommand("03", DP_TYPE_ENUM, "01")    // iquix code
-            if (settings?.logEnable) log.trace "${device.displayName} sending program mode : ${cmds}"
+            logDebug "sending program mode : ${cmds}"
             break
         default :
             break
@@ -1612,9 +1616,9 @@ def childLock( mode ) {
     // TODO - check childLock for MOES
     if (mode == "off") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "00")}
     else if (mode == "on") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "01")}
-    else {if (settings?.txtEnable) log.warn "${device.displayName} unsupported child lock mode ${mode} !"}
+    else {logWarn "unsupported child lock mode ${mode} !"}
     sendEvent(name: "childLock", value: mode)
-    if (settings?.txtEnable) log.info "${device.displayName} sending child lock mode : ${mode}"
+    logInfo "sending child lock mode : ${mode}"
     sendZigbeeCommands( cmds )    
 }
 
@@ -1625,19 +1629,19 @@ def setBrightness( bri ) {
     if (isBEOK()) {
         dp = "68"
         def key = brightnessOptions.find{it.value==bri}?.key
-        if (settings?.logEnable) log.trace "setBrightness ${bri} key=${key}"
+        logDebug "setBrightness ${bri} key=${key}"
         if (key != null) {
             def dpValHex = zigbee.convertToHexString(key as int, 2)
             cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
-            if (settings?.logEnable) log.debug "${device.displayName} changing brightness to ${bri} ($key)"
+            logDebug "changing brightness to ${bri} ($key)"
             sendZigbeeCommands( cmds )    
         }
         else {
-            if (settings?.txtEnable) log.warn "${device.displayName} invalid brightness control ${bri}"
+            logWarn "invalid brightness control ${bri}"
         }
     }
     else {
-        if (settings?.txtEnable) log.warn "${device.displayName} brightness control is not supported for modelGroup ${getModelGroup()}"
+        logWarn "brightness control is not supported for modelGroup ${getModelGroup()}"
     }
 }
 
@@ -1651,7 +1655,7 @@ def calibration( offset ) {
      // callibration command returns also thermostat mode (heat), operation mode (manual), heating stetpoint and few seconds later - the temperature!
     cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(offset as int, 8))
     
-    if (settings?.logEnable) log.trace "${device.displayName} sending calibration offset : ${offset}"
+    logDebug "sending calibration offset : ${offset}"
     sendZigbeeCommands( cmds )    
 }
 
@@ -1700,12 +1704,17 @@ def resetStats() {
         txFailCtr : 0
     ]
     Map lastRx = [
-        dp : -1,
-        fncmd : -1
+        dp : NOT_SET,
+        fncmd : NOT_SET,    // -1
+        setPoint : NOT_SET    // -1
     ]
     Map lastTx = [
         mode : "unknown",
-        isModeSetReq : false
+        isModeSetReq : false,
+        setModeRetries: 0,
+        setPoint : NOT_SET,    // -1
+        setPointRetries : 0,
+        isSetPointReq : false
     ]
     state.stats  =  mapToJsonString( stats )
     state.lastRx =  mapToJsonString( lastRx )
