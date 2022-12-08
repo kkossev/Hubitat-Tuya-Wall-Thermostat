@@ -35,13 +35,13 @@
  *                                  supressed dp=9 BRT-100 unknown function warning; 
  * ver. 1.2.8 2022-11-27 kkossev  - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is synced every hour for BEOK;
  *                                  modeReceiveCheck() and setpointReceiveCheck() refactored; 
- * ver. 1.2.9 2022-11-27 kkossev  - (dev. branch) bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; 
+ * ver. 1.2.9 2022-12-05 kkossev  - bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; homeKitCompatibility option
  *
  *
 */
 
 def version() { "1.2.9" }
-def timeStamp() {"2022/11/27 8:17 PM"}
+def timeStamp() {"2022/12/05 8:22 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -126,6 +126,7 @@ metadata {
                input (name: "frostProtection", type: "bool", title: "<b>Disable/Enable frost protection</b>", description: "<i>Disable/Enable frost protection</i>", defaultValue: true)
                input (name: "sound", type: "bool", title: "<b>Disable/Enable sound</b>", description: "<i>Disable/Enable sound</i>", defaultValue: true)
             }
+            input (name: "homeKitCompatibility",  type: "bool", title: "<b>HomeKit Compatibility</b>",  description: "Enable/disable HomeKit Compatibility", defaultValue: false)
         }
     }
 }
@@ -1202,6 +1203,15 @@ def updated() {
     /* unconditional */log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue('model')} manufacturer <b>${device.getDataValue('manufacturer')}</b> modelGroupPreference = <b>${modelGroupPreference}</b> (${getModelGroup()})"
     if (settings?.txtEnable) log.info "Force manual is <b>${forceManual}</b>; Resend failed is <b>${resendFailed}</b>"
     if (settings?.txtEnable) log.info "Debug logging is <b>${logEnable}</b>; Description text logging is <b>${txtEnable}</b>"
+    if (!(getModelGroup() in ['BRT-100'])) {
+        if (settings?.homeKitCompatibility?.value  == true && device.currentValue("battery", true) == null) {
+            sendEvent(name: 'battery', value: 100, unit: "%", type: "digital", descriptionText: "homeKitCompatibility on", isStateChange: true )    
+        }
+        else if (settings?.homeKitCompatibility?.value  == false && device.currentValue("battery", true) != null) {
+            sendEvent(name: 'homeKitCompatibility', value: "off", unit: "%", type: "digital", descriptionText: "homeKitCompatibility off", isStateChange: true )    // for the record
+            device.deleteCurrentState("battery")
+        }
+    }
     if (logEnable==true) {
         runIn(86400, logsOff, [overwrite: true, misfire: "ignore"])    // turn off debug logging after 24 hours
     }
@@ -1450,6 +1460,8 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || settings?.sound == null) device.updateSetting("sound", true)    
     if (fullInit == true || settings?.frostProtection == null) device.updateSetting("frostProtection", true)    
     if (fullInit == true || settings?.brightness == null) device.updateSetting("brightness", [value:"3", type:"enum"])
+    if (fullInit == true || settings?.homeKitCompatibility == null) device.updateSetting("homeKitCompatibility", true)    
+    
     //
 }
 
