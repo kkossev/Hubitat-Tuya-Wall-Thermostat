@@ -34,13 +34,14 @@
  * ver. 1.2.7 2022-11-05 kkossev  - BEOK: added frostProtection; BRT-100: tempCalibration bug fix; reversed heat and auto modes for MOES dp=3; hysteresis is hidden for BRT-100; maxTemp lower limit set to 15; dp3 is ignored from MOES/BSEED if in off mode
  *                                  supressed dp=9 BRT-100 unknown function warning; 
  * ver. 1.2.8 2022-11-27 kkossev  - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is synced every hour for BEOK;
- *                                  modeReceiveCheck() and setpointReceiveCheck() refactored
+ *                                  modeReceiveCheck() and setpointReceiveCheck() refactored; 
+ * ver. 1.2.9 2022-12-05 kkossev  - bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; homeKitCompatibility option
  *
  *
 */
 
-def version() { "1.2.8" }
-def timeStamp() {"2022/11/27 11:15 AM"}
+def version() { "1.2.9" }
+def timeStamp() {"2022/12/05 8:22 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -125,6 +126,7 @@ metadata {
                input (name: "frostProtection", type: "bool", title: "<b>Disable/Enable frost protection</b>", description: "<i>Disable/Enable frost protection</i>", defaultValue: true)
                input (name: "sound", type: "bool", title: "<b>Disable/Enable sound</b>", description: "<i>Disable/Enable sound</i>", defaultValue: true)
             }
+            input (name: "homeKitCompatibility",  type: "bool", title: "<b>HomeKit Compatibility</b>",  description: "Enable/disable HomeKit Compatibility", defaultValue: false)
         }
     }
 }
@@ -278,12 +280,14 @@ def parse(String description) {
                         case 'AVATTO' :    // AVATTO : mode (enum) 'manual', 'program'; 
                         case 'BEOK' :     // BEOK: x5hMode
                             logDebug "AVATTO/BEOK current thermostatMode was ${device.currentState('thermostatMode').value}"
+                            /* commented out 1/27/2022
                             if (device.currentState("thermostatMode").value == "off") {
                                 logWarn "ignoring 0x02 command in off mode"
                                 sendEvent(name: "thermostatOperatingState", value: "idle")
                                 break    // ignore 0x02 command if thermostat was switched off !!
                             }
                             else {    // previous thermosatMode was heat or auto
+                            */
                                 logDebug "previous thermosatMode was  ${device.currentState('thermostatMode').value}..."
                                 def thermostatMode = fncmd == 0 ? "heat" : "auto"    // inverted!
                                 if (thermostatMode == "auto") {
@@ -296,7 +300,7 @@ def parse(String description) {
                                 else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: <b>${thermostatMode}</b>"}
                                 sendEvent(name: "thermostatMode", value: thermostatMode)
                                 state.lastThermostatMode = thermostatMode
-                            }
+                           /* } */
                             break
                         case 'MOES' :    // MOES thermostatMode: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
                             def mode
@@ -1125,7 +1129,7 @@ def setManualMode() {
 def switchThermostatOn() {
     if (settings?.logEnable) log.debug "${device.displayName} switching On!"
     ArrayList<String> cmds = []
-    cmds = sendTuyaCommand("01", DP_TYPE_BOOL, "01")
+    cmds = sendTuyaCommand("01", DP_TYPE_BOOL, "01", delay=2750)    // increased delay to 2750 on 1/27/2022
     return cmds
 }
 
@@ -1154,28 +1158,28 @@ def getModelGroup() {
 
 
 def sendSupportedThermostatModes() {
-    def supportedThermostatModes = "[]"
+    def supportedThermostatModes = []
     switch (getModelGroup()) {
         case 'AVATTO' :
         case 'MOES' :
         case 'BEOK' :
-            supportedThermostatModes = '[off, heat, auto]'
+            supportedThermostatModes = ["off", "heat", "auto"]
             break
         case 'BRT-100' :  // BRT-100
-            supportedThermostatModes = '[off, heat, auto, emergency heat]'
+            supportedThermostatModes = ["off", "heat", "auto", "emergency heat"]
             break
         default :
-            supportedThermostatModes = '[off, heat, auto]'
+            supportedThermostatModes = ["off", "heat", "auto"]
             break
     }    
-    sendEvent(name: "supportedThermostatModes", value:  supportedThermostatModes, isStateChange: true)
+    sendEvent(name: "supportedThermostatModes", value:  JsonOutput.toJson(supportedThermostatModes), isStateChange: true)
 }
 
 //  called from initialize()
 def installed() {
     if (settings?.txtEnable) log.info "installed()"
     
-    sendEvent(name: "supportedThermostatFanModes", value: ["auto", "circulate", "on"], isStateChange: true)    
+    sendEvent(name: "supportedThermostatFanModes", value: JsonOutput.toJson(["auto", "circulate", "on"]), isStateChange: true)    
     sendSupportedThermostatModes()
     sendEvent(name: "thermostatMode", value: "heat", isStateChange: true)
     sendEvent(name: "thermostatFanMode", value: "auto", isStateChange: true)
@@ -1201,6 +1205,15 @@ def updated() {
     /* unconditional */log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue('model')} manufacturer <b>${device.getDataValue('manufacturer')}</b> modelGroupPreference = <b>${modelGroupPreference}</b> (${getModelGroup()})"
     if (settings?.txtEnable) log.info "Force manual is <b>${forceManual}</b>; Resend failed is <b>${resendFailed}</b>"
     if (settings?.txtEnable) log.info "Debug logging is <b>${logEnable}</b>; Description text logging is <b>${txtEnable}</b>"
+    if (!(getModelGroup() in ['BRT-100'])) {
+        if (settings?.homeKitCompatibility?.value  == true && device.currentValue("battery", true) == null) {
+            sendEvent(name: 'battery', value: 100, unit: "%", type: "digital", descriptionText: "homeKitCompatibility on", isStateChange: true )    
+        }
+        else if (settings?.homeKitCompatibility?.value  == false && device.currentValue("battery", true) != null) {
+            sendEvent(name: 'homeKitCompatibility', value: "off", unit: "%", type: "digital", descriptionText: "homeKitCompatibility off", isStateChange: true )    // for the record
+            device.deleteCurrentState("battery")
+        }
+    }
     if (logEnable==true) {
         runIn(86400, logsOff, [overwrite: true, misfire: "ignore"])    // turn off debug logging after 24 hours
     }
@@ -1449,6 +1462,8 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || settings?.sound == null) device.updateSetting("sound", true)    
     if (fullInit == true || settings?.frostProtection == null) device.updateSetting("frostProtection", true)    
     if (fullInit == true || settings?.brightness == null) device.updateSetting("brightness", [value:"3", type:"enum"])
+    if (fullInit == true || settings?.homeKitCompatibility == null) device.updateSetting("homeKitCompatibility", true)    
+    
     //
 }
 
