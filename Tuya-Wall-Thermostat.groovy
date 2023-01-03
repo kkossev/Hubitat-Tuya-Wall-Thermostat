@@ -3,14 +3,14 @@
  *
  *  https://community.hubitat.com/t/release-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050 
  *
- *	Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- *	in compliance with the License. You may obtain a copy of the License at:
+ *    Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *    in compliance with the License. You may obtain a copy of the License at:
  *
- *		http://www.apache.org/licenses/LICENSE-2.0
+ *        http://www.apache.org/licenses/LICENSE-2.0
  *
- *	Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
- *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
- *	for the specific language governing permissions and limitations under the License.
+ *    Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *    on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *    for the specific language governing permissions and limitations under the License.
  * 
  *  Credits: Jaewon Park, iquix and many others
  * 
@@ -36,12 +36,13 @@
  * ver. 1.2.8 2022-11-27 kkossev  - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is synced every hour for BEOK;
  *                                  modeReceiveCheck() and setpointReceiveCheck() refactored; 
  * ver. 1.2.9 2022-12-05 kkossev  - bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; homeKitCompatibility option
+ * ver. 1.2.10 2022-12-25 kkossev  - code cleanup
  *
  *
 */
 
-def version() { "1.2.9" }
-def timeStamp() {"2022/12/05 8:22 PM"}
+def version() { "1.2.10" }
+def timeStamp() {"2022/12/25 11:01 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -56,10 +57,10 @@ import groovy.time.TimeCategory
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/development/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
-		capability "Actuator"
+        capability "Actuator"
         capability "Refresh"
         capability "Sensor"
-		capability "Temperature Measurement"
+        capability "Temperature Measurement"
         capability "Thermostat"
         capability "ThermostatHeatingSetpoint"
         capability "ThermostatCoolingSetpoint"
@@ -598,7 +599,7 @@ def parse(String description) {
                     }
                     // KK TODO if (valve > 3) => On !
                     break
-                case 0x6E :    	// (110) Low battery    DP_IDENTIFIER_BATTERY 0x6E
+                case 0x6E :        // (110) Low battery    DP_IDENTIFIER_BATTERY 0x6E
                     if (settings?.txtEnable) log.info "${device.displayName} Battery (DP= 0x6E) is: ${fncmd}"
                     break
                 case 0x70 :    // (112) // Reporting    DP_IDENTIFIER_REPORTING 0x70
@@ -624,7 +625,7 @@ def parse(String description) {
 
 
 def syncTuyaDateTime() {
-    // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)	local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
+    // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)    local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
     // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).                 // Y2K = 946684800 
     def offset = 0
     def offsetHours = 0
@@ -1053,7 +1054,7 @@ def setThermostatSetpoint( temperature ) {
 
 //  ThermostatHeatingSetpoint command
 //  sends TuyaCommand and checks after 4 seconds
-//  1°C steps. (0.5°C setting on the TRV itself, rounded for zigbee interface)
+//  1ï¿½C steps. (0.5ï¿½C setting on the TRV itself, rounded for zigbee interface)
 def setHeatingSetpoint( temperature ) {
     def previousSetpoint = device.currentState('heatingSetpoint', true).value /*as int*/
     double tempDouble
@@ -1190,7 +1191,7 @@ def installed() {
     sendEvent(name: "heatingSetpoint", value: 20.0, unit: "\u00B0"+"C", isStateChange: true)
     sendEvent(name: "coolingSetpoint", value: 30.0, unit: "\u00B0"+"C", isStateChange: true)
     sendEvent(name: "temperature", value: 22.0, unit: "\u00B0"+"C", isStateChange: true)    
-    updateDataValue("lastRunningMode", "heat")	
+    updateDataValue("lastRunningMode", "heat")    
 
     //state.setpoint = 0
     unschedule()
@@ -1376,7 +1377,7 @@ def checkDriverVersion() {
         if (txtEnable==true) log.debug "${device.displayName} updating the settings from the current driver version ${state.driverVersion} to the new version ${driverVersionAndTimeStamp()}"
         initializeVars( fullInit = false ) 
         if (device.currentValue("presence", true) == null) {
-        	sendEvent(name: "presence", value: "unknown") 
+            sendEvent(name: "presence", value: "unknown") 
         }
         if (state.rxCounter != null) state.remove("rxCounter")
         if (state.txCounter != null) state.remove("txCounter")
@@ -1396,7 +1397,7 @@ def checkDriverVersion() {
 // called when any event was received from the Zigbee device in parse() method..
 def setPresent() {
     if (device.currentValue("presence", true) != "present") {
-    	sendEvent(name: "presence", value: "present") 
+        sendEvent(name: "presence", value: "present") 
         runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
     }
     state.notPresentCounter = 0
@@ -1408,7 +1409,7 @@ def checkIfNotPresent() {
         state.notPresentCounter = state.notPresentCounter + 1
         if (state.notPresentCounter >= presenceCountTreshold) {
             if (device.currentValue("presence", true) != "not present") {
-    	        sendEvent(name: "presence", value: "not present")
+                sendEvent(name: "presence", value: "not present")
                 if (logEnable==true) log.warn "${device.displayName} not present!"
             }
         }
@@ -1483,11 +1484,11 @@ def initialize() {
 }
 
 def setDeviceLimits() { // for google and amazon compatability
-    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "°C", isStateChange: true)
-	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true)
+    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "ï¿½C", isStateChange: true)
+    sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "ï¿½C", isStateChange: true)
     updateDataValue("lastRunningMode", "heat")
-	if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
-}	
+    if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
+}    
 
 // scheduled for call from setThermostatMode() 4 seconds after the mode was potentiually changed.
 // also, called every 1 minute from receiveCheck()
@@ -1592,9 +1593,9 @@ private getPACKET_ID() {
 }
 
 private getDescriptionText(msg) {
-	def descriptionText = "${device.displayName} ${msg}"
-	if (settings?.txtEnable) log.info "${descriptionText}"
-	return descriptionText
+    def descriptionText = "${device.displayName} ${msg}"
+    if (settings?.txtEnable) log.info "${descriptionText}"
+    return descriptionText
 }
 
 def logsOff(){
@@ -1677,11 +1678,11 @@ def calibration( offset ) {
 }
 
 Integer safeToInt(val, Integer defaultVal=0) {
-	return "${val}"?.isInteger() ? "${val}".toInteger() : defaultVal
+    return "${val}"?.isInteger() ? "${val}".toInteger() : defaultVal
 }
 
 Double safeToDouble(val, Double defaultVal=0.0) {
-	return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
+    return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
 }
 
 def getBatteryPercentageResult(rawValue) {
