@@ -36,12 +36,13 @@
  * ver. 1.2.8 2022-11-27 kkossev  - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is synced every hour for BEOK;
  *                                  modeReceiveCheck() and setpointReceiveCheck() refactored; 
  * ver. 1.2.9 2022-12-05 kkossev  - bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; homeKitCompatibility option
+ * ver. 1.2.10 2023-01-08 kkossev  - bugfix: AVATTO thermostat can not be switched off from HE dashboard;
  *
  *
 */
 
-def version() { "1.2.9" }
-def timeStamp() {"2022/12/05 8:22 PM"}
+def version() { "1.2.10" }
+def timeStamp() {"2023/01/08 9:51 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -249,7 +250,7 @@ def parse(String description) {
                             def switchState = (fncmd == 0) ? "off" : state.lastThermostatMode
                             sendEvent(name: "thermostatMode", value: switchState)
                             if (switchState == "off") {
-                                if (settings?.txtEnable) {log.info "${device.displayName} switchState reported is: OFF"}
+                                logInfo "switchState reported is: OFF"
                                 sendEvent(name: "thermostatOperatingState", value: "idle")
                             }
                             else {
@@ -257,10 +258,10 @@ def parse(String description) {
                                 sendEvent(name: "thermostatOperatingState", value: state.lastThermostatOperatingState)
                             }                        
                             if (switchState == getLastMode())  {
-                                if (settings?.logEnable) {log.debug "${device.displayName} last sent mode ${getLastMode()} is confirmed from the device (dp=${dp}, fncmd=${fncmd})"}
+                                logDebug "last sent mode ${getLastMode()} is confirmed from the device (dp=${dp}, fncmd=${fncmd})"
                             }
                             else {
-                                if (settings?.logEnable) {log.warn "${device.displayName} last sent mode ${getLastMode()} DIFFERS from the mode received from the device ${switchState} (dp=${dp}, fncmd=${fncmd})"}
+                                logWarn "last sent mode ${getLastMode()} DIFFERS from the mode received from the device ${switchState} (dp=${dp}, fncmd=${fncmd})"
                             }
                             break
                         case 'BRT-100' :    // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
@@ -278,14 +279,14 @@ def parse(String description) {
                         case 'AVATTO' :    // AVATTO : mode (enum) 'manual', 'program'; 
                         case 'BEOK' :     // BEOK: x5hMode
                             logDebug "AVATTO/BEOK current thermostatMode was ${device.currentState('thermostatMode').value}"
-                            /* commented out 1/27/2022
+                            /* was commented out 1/27/2022 - breaks switching off from HE dashboard! */
                             if (device.currentState("thermostatMode").value == "off") {
                                 logWarn "ignoring 0x02 command in off mode"
                                 sendEvent(name: "thermostatOperatingState", value: "idle")
                                 break    // ignore 0x02 command if thermostat was switched off !!
                             }
                             else {    // previous thermosatMode was heat or auto
-                            */
+                            /**/
                                 logDebug "previous thermosatMode was  ${device.currentState('thermostatMode').value}..."
                                 def thermostatMode = fncmd == 0 ? "heat" : "auto"    // inverted!
                                 if (thermostatMode == "auto") {
@@ -298,7 +299,7 @@ def parse(String description) {
                                 else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: <b>${thermostatMode}</b>"}
                                 sendEvent(name: "thermostatMode", value: thermostatMode)
                                 state.lastThermostatMode = thermostatMode
-                           /* } */
+                            } 
                             break
                         case 'MOES' :    // MOES thermostatMode: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
                             def mode
@@ -1051,7 +1052,7 @@ def setThermostatSetpoint( temperature ) {
 
 //  ThermostatHeatingSetpoint command
 //  sends TuyaCommand and checks after 4 seconds
-//  1캜 steps. (0.5캜 setting on the TRV itself, rounded for zigbee interface)
+//  1째C steps. (0.5째C setting on the TRV itself, rounded for zigbee interface)
 def setHeatingSetpoint( temperature ) {
     def previousSetpoint = device.currentState('heatingSetpoint', true).value /*as int*/
     double tempDouble
@@ -1481,8 +1482,8 @@ def initialize() {
 }
 
 def setDeviceLimits() { // for google and amazon compatability
-    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "캜", isStateChange: true)
-	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "캜", isStateChange: true)
+    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "째C", isStateChange: true)
+	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "째C", isStateChange: true)
     updateDataValue("lastRunningMode", "heat")
 	if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
 }	
