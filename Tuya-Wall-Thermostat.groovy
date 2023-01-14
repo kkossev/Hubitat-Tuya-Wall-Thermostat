@@ -37,12 +37,13 @@
  *                                  modeReceiveCheck() and setpointReceiveCheck() refactored; 
  * ver. 1.2.9 2022-12-05 kkossev  - bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; homeKitCompatibility option
  * ver. 1.2.10 2023-01-08 kkossev  - bugfix: AVATTO thermostat can not be switched off from HE dashboard;
+ * ver. 1.2.11 2023-01-14 kkossev  - bugfix: BEOK setBrightness retry
  *
  *
 */
 
-def version() { "1.2.10" }
-def timeStamp() {"2023/01/08 9:51 PM"}
+def version() { "1.2.11" }
+def timeStamp() {"2023/01/14 10:36 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -536,6 +537,9 @@ def parse(String description) {
                     else if (isBEOK()) {
                         if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${brightnessOptions[fncmd.toString()]} (${fncmd})"
                         device.updateSetting( "brightness",  [value: fncmd.toString(), type:"enum"] )
+                        Map lastRxMap = stringToJsonMap( state.lastRx )
+                        lastRxMap.setBrightness = brightnessOptions[fncmd.toString()]
+                        state.lastRx   = mapToJsonString( lastRxMap)
                         sendEvent(name: "brightness", value: brightnessOptions[fncmd.toString()])
                     }
                     else {
@@ -1040,7 +1044,7 @@ def sendTuyaHeatingSetpoint( temperature ) {
     lastTxMap.setPoint = temperature    // BEOK - float value!
     state.lastTx = mapToJsonString( lastTxMap )    // save everything back to state.lastTx
     //
-    runIn(4, setpointReceiveCheck)
+    runIn(3, setpointReceiveCheck)
     sendZigbeeCommands( sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8)) )
 }
 
@@ -1557,10 +1561,49 @@ def setpointReceiveCheck() {
     state.stats  = mapToJsonString( statsMap)      // save everything back to state.stats
 }
 
+//
+// Brightness checking is also called every 1 minute from receiveCheck()
+def setBrightnessReceiveCheck() {
+    if (settings?.resendFailed == false )
+        return
+
+    Map lastTxMap = stringToJsonMap( state.lastTx )
+    if (lastTxMap.isSetBrightnessReq == false)
+        return
+    Map statsMap = stringToJsonMap( state.stats )
+    Map lastRxMap = stringToJsonMap( state.lastRx )
+    
+    if (lastTxMap.setBrightness != NOT_SET && ((lastTxMap.setBrightness as String) != (lastRxMap.setBrightness as String))) {
+        lastTxMap.setBrightnessRetries = (lastTxMap.setBrightnessRetries ?: 0) + 1
+        if (lastTxMap.setBrightnessRetries < MaxRetries) {
+            logWarn "setBrightnessReceiveCheck(${lastTxMap.setBrightness}) <b>failed<b/> (last received is still ${lastRxMap.setBrightness})"
+            logDebug "resending setBrightness command : ${lastTxMap.setBrightness} (retry# ${lastTxMap.setBrightnessRetries})"
+            statsMap.txFailCtr = statsMap.txFailCtr + 1
+            setBrightness(lastTxMap.setBrightness)
+        }
+        else {
+            logWarn "setBrightnessReceiveCheck(${lastTxMap.setPoint}) <b>giving up retrying<b/>"
+            lastTxMap.isSetBrightnessReq = false
+            lastTxMap.setBrightnessRetries = 0
+        }
+    }
+    else {
+        logDebug "setBrightnessReceiveCheck brightness was changed successfuly to (${lastTxMap.setBrightness}). No need for further checks."
+        lastTxMap.setBrightness = NOT_SET
+        lastTxMap.isSetBrightnessReq = false    
+    }
+    state.lastTx = mapToJsonString( lastTxMap )    // save everything back to state.lastTx
+    state.stats  = mapToJsonString( statsMap)      // save everything back to state.stats
+}
+
+
+
+
 //  receiveCheck() is unconditionally scheduled Every1Minute from installed() ..
 def receiveCheck() {
     modeReceiveCheck()
     setpointReceiveCheck()
+    setBrightnessReceiveCheck()
 }
 
 private sendTuyaCommand(dp, dp_type, fncmd, delay=200) {
@@ -1650,6 +1693,12 @@ def setBrightness( bri ) {
             def dpValHex = zigbee.convertToHexString(key as int, 2)
             cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
             logDebug "changing brightness to ${bri} ($key)"
+            // added 01/14/2023
+            Map lastTxMap = stringToJsonMap( state.lastTx )
+            lastTxMap.isSetBrightnessReq = true
+            lastTxMap.setBrightness = bri
+            state.lastTx = mapToJsonString( lastTxMap )    // save everything back to state.lastTx
+            runIn(3, setBrightnessReceiveCheck)
             sendZigbeeCommands( cmds )    
         }
         else {
@@ -1722,7 +1771,8 @@ def resetStats() {
     Map lastRx = [
         dp : NOT_SET,
         fncmd : NOT_SET,    // -1
-        setPoint : NOT_SET    // -1
+        setPoint : NOT_SET,    // -1
+        setBrightness : NOT_SET
     ]
     Map lastTx = [
         mode : "unknown",
@@ -1730,7 +1780,10 @@ def resetStats() {
         setModeRetries: 0,
         setPoint : NOT_SET,    // -1
         setPointRetries : 0,
-        isSetPointReq : false
+        isSetPointReq : false,
+        setBrightness : NOT_SET,    // -1
+        setBrightnessRetries : 0,
+        isSetBrightnessReq : false
     ]
     state.stats  =  mapToJsonString( stats )
     state.lastRx =  mapToJsonString( lastRx )
