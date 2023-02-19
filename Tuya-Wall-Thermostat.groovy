@@ -3,14 +3,14 @@
  *
  *  https://community.hubitat.com/t/release-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050 
  *
- *    Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- *    in compliance with the License. You may obtain a copy of the License at:
+ *	Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *	in compliance with the License. You may obtain a copy of the License at:
  *
- *        http://www.apache.org/licenses/LICENSE-2.0
+ *		http://www.apache.org/licenses/LICENSE-2.0
  *
- *    Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
- *    on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
- *    for the specific language governing permissions and limitations under the License.
+ *	Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *	for the specific language governing permissions and limitations under the License.
  * 
  *  Credits: Jaewon Park, iquix and many others
  * 
@@ -36,13 +36,14 @@
  * ver. 1.2.8 2022-11-27 kkossev  - added 'brightness' attribute; removed MODEL3; dp=3 refactored; presence function bug fix; added resetStats command; refactored stats; faster sending of Zigbee commands; time is synced every hour for BEOK;
  *                                  modeReceiveCheck() and setpointReceiveCheck() refactored; 
  * ver. 1.2.9 2022-12-05 kkossev  - bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; homeKitCompatibility option
- * ver. 1.2.10 2022-12-25 kkossev  - code cleanup
+ * ver. 1.2.10 2023-01-08 kkossev  - bugfix: AVATTO thermostat can not be switched off from HE dashboard;
+ * ver. 1.2.11 2023-01-14 kkossev  - bugfix: BEOK setBrightness retry
  *
  *
 */
 
-def version() { "1.2.10" }
-def timeStamp() {"2022/12/25 11:01 PM"}
+def version() { "1.2.11" }
+def timeStamp() {"2023/01/14 10:36 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -57,10 +58,10 @@ import groovy.time.TimeCategory
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/development/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
-        capability "Actuator"
+		capability "Actuator"
         capability "Refresh"
         capability "Sensor"
-        capability "Temperature Measurement"
+		capability "Temperature Measurement"
         capability "Thermostat"
         capability "ThermostatHeatingSetpoint"
         capability "ThermostatCoolingSetpoint"
@@ -252,7 +253,7 @@ def parse(String description) {
                             def switchState = (fncmd == 0) ? "off" : state.lastThermostatMode
                             sendEvent(name: "thermostatMode", value: switchState)
                             if (switchState == "off") {
-                                if (settings?.txtEnable) {log.info "${device.displayName} switchState reported is: OFF"}
+                                logInfo "switchState reported is: OFF"
                                 sendEvent(name: "thermostatOperatingState", value: "idle")
                             }
                             else {
@@ -260,10 +261,10 @@ def parse(String description) {
                                 sendEvent(name: "thermostatOperatingState", value: state.lastThermostatOperatingState)
                             }                        
                             if (switchState == getLastMode())  {
-                                if (settings?.logEnable) {log.debug "${device.displayName} last sent mode ${getLastMode()} is confirmed from the device (dp=${dp}, fncmd=${fncmd})"}
+                                logDebug "last sent mode ${getLastMode()} is confirmed from the device (dp=${dp}, fncmd=${fncmd})"
                             }
                             else {
-                                if (settings?.logEnable) {log.warn "${device.displayName} last sent mode ${getLastMode()} DIFFERS from the mode received from the device ${switchState} (dp=${dp}, fncmd=${fncmd})"}
+                                logWarn "last sent mode ${getLastMode()} DIFFERS from the mode received from the device ${switchState} (dp=${dp}, fncmd=${fncmd})"
                             }
                             break
                         case 'BRT-100' :    // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
@@ -281,14 +282,14 @@ def parse(String description) {
                         case 'AVATTO' :    // AVATTO : mode (enum) 'manual', 'program'; 
                         case 'BEOK' :     // BEOK: x5hMode
                             logDebug "AVATTO/BEOK current thermostatMode was ${device.currentState('thermostatMode').value}"
-                            /* commented out 1/27/2022
+                            /* was commented out 1/27/2022 - breaks switching off from HE dashboard! */
                             if (device.currentState("thermostatMode").value == "off") {
                                 logWarn "ignoring 0x02 command in off mode"
                                 sendEvent(name: "thermostatOperatingState", value: "idle")
                                 break    // ignore 0x02 command if thermostat was switched off !!
                             }
                             else {    // previous thermosatMode was heat or auto
-                            */
+                            /**/
                                 logDebug "previous thermosatMode was  ${device.currentState('thermostatMode').value}..."
                                 def thermostatMode = fncmd == 0 ? "heat" : "auto"    // inverted!
                                 if (thermostatMode == "auto") {
@@ -301,7 +302,7 @@ def parse(String description) {
                                 else if (settings?.txtEnable) {log.info "${device.displayName} Thermostat mode reported is: <b>${thermostatMode}</b>"}
                                 sendEvent(name: "thermostatMode", value: thermostatMode)
                                 state.lastThermostatMode = thermostatMode
-                           /* } */
+                            } 
                             break
                         case 'MOES' :    // MOES thermostatMode: 0-manual; 1:auto; 2:auto w/ temporary changed setpoint
                             def mode
@@ -538,6 +539,9 @@ def parse(String description) {
                     else if (isBEOK()) {
                         if (settings?.txtEnable) log.info "${device.displayName} backplane brightness is ${brightnessOptions[fncmd.toString()]} (${fncmd})"
                         device.updateSetting( "brightness",  [value: fncmd.toString(), type:"enum"] )
+                        Map lastRxMap = stringToJsonMap( state.lastRx )
+                        lastRxMap.setBrightness = brightnessOptions[fncmd.toString()]
+                        state.lastRx   = mapToJsonString( lastRxMap)
                         sendEvent(name: "brightness", value: brightnessOptions[fncmd.toString()])
                     }
                     else {
@@ -599,7 +603,7 @@ def parse(String description) {
                     }
                     // KK TODO if (valve > 3) => On !
                     break
-                case 0x6E :        // (110) Low battery    DP_IDENTIFIER_BATTERY 0x6E
+                case 0x6E :    	// (110) Low battery    DP_IDENTIFIER_BATTERY 0x6E
                     if (settings?.txtEnable) log.info "${device.displayName} Battery (DP= 0x6E) is: ${fncmd}"
                     break
                 case 0x70 :    // (112) // Reporting    DP_IDENTIFIER_REPORTING 0x70
@@ -625,7 +629,7 @@ def parse(String description) {
 
 
 def syncTuyaDateTime() {
-    // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)    local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
+    // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)	local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
     // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).                 // Y2K = 946684800 
     def offset = 0
     def offsetHours = 0
@@ -1042,7 +1046,7 @@ def sendTuyaHeatingSetpoint( temperature ) {
     lastTxMap.setPoint = temperature    // BEOK - float value!
     state.lastTx = mapToJsonString( lastTxMap )    // save everything back to state.lastTx
     //
-    runIn(4, setpointReceiveCheck)
+    runIn(3, setpointReceiveCheck)
     sendZigbeeCommands( sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(settemp as int, 8)) )
 }
 
@@ -1054,7 +1058,7 @@ def setThermostatSetpoint( temperature ) {
 
 //  ThermostatHeatingSetpoint command
 //  sends TuyaCommand and checks after 4 seconds
-//  1�C steps. (0.5�C setting on the TRV itself, rounded for zigbee interface)
+//  1°C steps. (0.5°C setting on the TRV itself, rounded for zigbee interface)
 def setHeatingSetpoint( temperature ) {
     def previousSetpoint = device.currentState('heatingSetpoint', true).value /*as int*/
     double tempDouble
@@ -1191,7 +1195,7 @@ def installed() {
     sendEvent(name: "heatingSetpoint", value: 20.0, unit: "\u00B0"+"C", isStateChange: true)
     sendEvent(name: "coolingSetpoint", value: 30.0, unit: "\u00B0"+"C", isStateChange: true)
     sendEvent(name: "temperature", value: 22.0, unit: "\u00B0"+"C", isStateChange: true)    
-    updateDataValue("lastRunningMode", "heat")    
+    updateDataValue("lastRunningMode", "heat")	
 
     //state.setpoint = 0
     unschedule()
@@ -1377,7 +1381,7 @@ def checkDriverVersion() {
         if (txtEnable==true) log.debug "${device.displayName} updating the settings from the current driver version ${state.driverVersion} to the new version ${driverVersionAndTimeStamp()}"
         initializeVars( fullInit = false ) 
         if (device.currentValue("presence", true) == null) {
-            sendEvent(name: "presence", value: "unknown") 
+        	sendEvent(name: "presence", value: "unknown") 
         }
         if (state.rxCounter != null) state.remove("rxCounter")
         if (state.txCounter != null) state.remove("txCounter")
@@ -1397,7 +1401,7 @@ def checkDriverVersion() {
 // called when any event was received from the Zigbee device in parse() method..
 def setPresent() {
     if (device.currentValue("presence", true) != "present") {
-        sendEvent(name: "presence", value: "present") 
+    	sendEvent(name: "presence", value: "present") 
         runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
     }
     state.notPresentCounter = 0
@@ -1409,7 +1413,7 @@ def checkIfNotPresent() {
         state.notPresentCounter = state.notPresentCounter + 1
         if (state.notPresentCounter >= presenceCountTreshold) {
             if (device.currentValue("presence", true) != "not present") {
-                sendEvent(name: "presence", value: "not present")
+    	        sendEvent(name: "presence", value: "not present")
                 if (logEnable==true) log.warn "${device.displayName} not present!"
             }
         }
@@ -1484,11 +1488,11 @@ def initialize() {
 }
 
 def setDeviceLimits() { // for google and amazon compatability
-    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "�C", isStateChange: true)
-    sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "�C", isStateChange: true)
+    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "°C", isStateChange: true)
+	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true)
     updateDataValue("lastRunningMode", "heat")
-    if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
-}    
+	if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
+}	
 
 // scheduled for call from setThermostatMode() 4 seconds after the mode was potentiually changed.
 // also, called every 1 minute from receiveCheck()
@@ -1559,10 +1563,49 @@ def setpointReceiveCheck() {
     state.stats  = mapToJsonString( statsMap)      // save everything back to state.stats
 }
 
+//
+// Brightness checking is also called every 1 minute from receiveCheck()
+def setBrightnessReceiveCheck() {
+    if (settings?.resendFailed == false )
+        return
+
+    Map lastTxMap = stringToJsonMap( state.lastTx )
+    if (lastTxMap.isSetBrightnessReq == false)
+        return
+    Map statsMap = stringToJsonMap( state.stats )
+    Map lastRxMap = stringToJsonMap( state.lastRx )
+    
+    if (lastTxMap.setBrightness != NOT_SET && ((lastTxMap.setBrightness as String) != (lastRxMap.setBrightness as String))) {
+        lastTxMap.setBrightnessRetries = (lastTxMap.setBrightnessRetries ?: 0) + 1
+        if (lastTxMap.setBrightnessRetries < MaxRetries) {
+            logWarn "setBrightnessReceiveCheck(${lastTxMap.setBrightness}) <b>failed<b/> (last received is still ${lastRxMap.setBrightness})"
+            logDebug "resending setBrightness command : ${lastTxMap.setBrightness} (retry# ${lastTxMap.setBrightnessRetries})"
+            statsMap.txFailCtr = statsMap.txFailCtr + 1
+            setBrightness(lastTxMap.setBrightness)
+        }
+        else {
+            logWarn "setBrightnessReceiveCheck(${lastTxMap.setPoint}) <b>giving up retrying<b/>"
+            lastTxMap.isSetBrightnessReq = false
+            lastTxMap.setBrightnessRetries = 0
+        }
+    }
+    else {
+        logDebug "setBrightnessReceiveCheck brightness was changed successfuly to (${lastTxMap.setBrightness}). No need for further checks."
+        lastTxMap.setBrightness = NOT_SET
+        lastTxMap.isSetBrightnessReq = false    
+    }
+    state.lastTx = mapToJsonString( lastTxMap )    // save everything back to state.lastTx
+    state.stats  = mapToJsonString( statsMap)      // save everything back to state.stats
+}
+
+
+
+
 //  receiveCheck() is unconditionally scheduled Every1Minute from installed() ..
 def receiveCheck() {
     modeReceiveCheck()
     setpointReceiveCheck()
+    setBrightnessReceiveCheck()
 }
 
 private sendTuyaCommand(dp, dp_type, fncmd, delay=200) {
@@ -1593,9 +1636,9 @@ private getPACKET_ID() {
 }
 
 private getDescriptionText(msg) {
-    def descriptionText = "${device.displayName} ${msg}"
-    if (settings?.txtEnable) log.info "${descriptionText}"
-    return descriptionText
+	def descriptionText = "${device.displayName} ${msg}"
+	if (settings?.txtEnable) log.info "${descriptionText}"
+	return descriptionText
 }
 
 def logsOff(){
@@ -1652,6 +1695,12 @@ def setBrightness( bri ) {
             def dpValHex = zigbee.convertToHexString(key as int, 2)
             cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
             logDebug "changing brightness to ${bri} ($key)"
+            // added 01/14/2023
+            Map lastTxMap = stringToJsonMap( state.lastTx )
+            lastTxMap.isSetBrightnessReq = true
+            lastTxMap.setBrightness = bri
+            state.lastTx = mapToJsonString( lastTxMap )    // save everything back to state.lastTx
+            runIn(3, setBrightnessReceiveCheck)
             sendZigbeeCommands( cmds )    
         }
         else {
@@ -1678,11 +1727,11 @@ def calibration( offset ) {
 }
 
 Integer safeToInt(val, Integer defaultVal=0) {
-    return "${val}"?.isInteger() ? "${val}".toInteger() : defaultVal
+	return "${val}"?.isInteger() ? "${val}".toInteger() : defaultVal
 }
 
 Double safeToDouble(val, Double defaultVal=0.0) {
-    return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
+	return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
 }
 
 def getBatteryPercentageResult(rawValue) {
@@ -1724,7 +1773,8 @@ def resetStats() {
     Map lastRx = [
         dp : NOT_SET,
         fncmd : NOT_SET,    // -1
-        setPoint : NOT_SET    // -1
+        setPoint : NOT_SET,    // -1
+        setBrightness : NOT_SET
     ]
     Map lastTx = [
         mode : "unknown",
@@ -1732,7 +1782,10 @@ def resetStats() {
         setModeRetries: 0,
         setPoint : NOT_SET,    // -1
         setPointRetries : 0,
-        isSetPointReq : false
+        isSetPointReq : false,
+        setBrightness : NOT_SET,    // -1
+        setBrightnessRetries : 0,
+        isSetBrightnessReq : false
     ]
     state.stats  =  mapToJsonString( stats )
     state.lastRx =  mapToJsonString( lastRx )
