@@ -38,7 +38,7 @@
  * ver. 1.2.9 2022-12-05 kkossev  - bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; homeKitCompatibility option
  * ver. 1.2.10 2023-01-08 kkossev  - bugfix: AVATTO thermostat can not be switched off from HE dashboard;
  * ver. 1.2.11 2023-01-14 kkossev  - bugfix: BEOK setBrightness retry
- * ver. 1.3.0  2023-06-03 kkossev  - (dev. branch) added sensorSelection; replaced Presence w/ Health Status; added ping() and rtt;
+ * ver. 1.3.0  2023-06-03 kkossev  - (dev. branch) added sensorSelection; replaced Presence w/ Health Status; added ping() and rtt; added '--- Select ---' default value for the sensorSelection command; added sensorSelection as attribute
  *
  *                                  TODO: tuyaAppVersion in Data section
  *                                  TODO: duplicate check for temperature reports is wrong ! (BEOK sends temp report every 6 seconds ! )
@@ -50,7 +50,7 @@
 */
 
 def version() { "1.3.0" }
-def timeStamp() {"2023/06/03 9:56 AM"}
+def timeStamp() {"2023/06/03 7:19 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -81,6 +81,7 @@ metadata {
         attribute "childLock", "enum", ["off", "on"]
         attribute "brightness", "enum", ['off', 'low', 'medium', 'high']
         attribute "healthStatus", "enum", ["offline", "online"]
+        attribute "sensorSelection", "enum", sensorOptions.values() as List<String>
         attribute "rtt", "number" 
         
         if (_DEBUG == true) {
@@ -94,7 +95,7 @@ metadata {
         command "initialize", [[name: "Initialize the thermostat after switching drivers.  \n\r   ***** Will load device default values! *****" ]]
         command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]
         command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: ["off", "low", "medium", "high"], description: "Set LCD brightness for BEOK thermostats"] ]
-        command "sensorSelection",  [[name: "sensorSelection", type: "ENUM", constraints: sensorOptions, description: "Select the temperature sensor"] ]
+        command "sensorSelection",  [[name: "sensorSelection", type: "ENUM", constraints: ["99":"--- Select ---"] + sensorOptions, description: "Select the temperature sensor"] ]
         
         command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
         command "resetStats", [[name: "Reset Statistics" ]]
@@ -500,8 +501,9 @@ def parse(String description) {
                     sendEvent(name: "childLock", value: (fncmd == 0) ? "off" : "on" )
                     break
                 case 0x2B :    // (43) AVATTO Sensor 0-In 1-Out 2-Both; x5hSensorSelection BEOK
-                    if (settings?.txtEnable) log.info "${device.displayName} Sensor is: ${fncmd==0?'In':fncmd==1?'Out':fncmd==2?'In and Out':'UNKNOWN'} (${fncmd})"
+                    logInfo "Sensor is: ${sensorOptions[fncmd.toString()]} (${fncmd})"
                     // TODO - make it a preference parameter !
+                    sendEvent(name: "sensorSelection", value: sensorOptions[fncmd.toString()])
                     break
                 case 0x2C :                                                 // temperature calibration (offset in degree)   //DP_IDENTIFIER_THERMOSTAT_CALIBRATION_2 0x2C // Calibration offset used by others
                     processTuyaCalibration( dp, fncmd )
