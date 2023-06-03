@@ -38,12 +38,19 @@
  * ver. 1.2.9 2022-12-05 kkossev  - bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; homeKitCompatibility option
  * ver. 1.2.10 2023-01-08 kkossev  - bugfix: AVATTO thermostat can not be switched off from HE dashboard;
  * ver. 1.2.11 2023-01-14 kkossev  - bugfix: BEOK setBrightness retry
+ * ver. 1.3.0  2023-06-03 kkossev  - (dev. branch) added sensorSelection; replaced Presence w/ Health Status; added ping() and rtt;
  *
+ *                                  TODO: tuyaAppVersion in Data section
+ *                                  TODO: duplicate check for temperature reports is wrong ! (BEOK sends temp report every 6 seconds ! )
+ *                                  TODO: https://community.hubitat.com/t/release-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050/68?u=kkossev 
+ *                                  TODO: add forceOn; 
+ *                                  TODO: @user2669  _TZE200_aoclfnxz (MOES) : https://community.hubitat.com/t/release-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050/60?u=kkossev
+ *                                  TODO: @user2669 https://community.hubitat.com/t/release-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050/65?u=kkossev 
  *
 */
 
-def version() { "1.2.11" }
-def timeStamp() {"2023/01/14 10:36 PM"}
+def version() { "1.3.0" }
+def timeStamp() {"2023/06/03 9:56 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -69,13 +76,14 @@ metadata {
         capability "ThermostatSetpoint"
         capability "ThermostatMode"
         capability "Battery"                    // BRT-100
-        capability "Presence Sensor"
-        
+        capability "HealthCheck"                // ver. 1.3.0. replaced previously used "Presence Sensor" 
         
         attribute "childLock", "enum", ["off", "on"]
         attribute "brightness", "enum", ['off', 'low', 'medium', 'high']
-
-        if (debug == true) {
+        attribute "healthStatus", "enum", ["offline", "online"]
+        attribute "rtt", "number" 
+        
+        if (_DEBUG == true) {
             command "zTest", [
                 [name:"dpCommand", type: "STRING", description: "Tuya DP Command", constraints: ["STRING"]],
                 [name:"dpValue",   type: "STRING", description: "Tuya DP value", constraints: ["STRING"]],
@@ -86,6 +94,7 @@ metadata {
         command "initialize", [[name: "Initialize the thermostat after switching drivers.  \n\r   ***** Will load device default values! *****" ]]
         command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]
         command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: ["off", "low", "medium", "high"], description: "Set LCD brightness for BEOK thermostats"] ]
+        command "sensorSelection",  [[name: "sensorSelection", type: "ENUM", constraints: sensorOptions, description: "Select the temperature sensor"] ]
         
         command "factoryReset", [[name:"factoryReset", type: "STRING", description: "Type 'YES'", constraints: ["STRING"]]]
         command "resetStats", [[name: "Reset Statistics" ]]
@@ -179,6 +188,8 @@ def isBSEED() { return isMOES() }
 
 @Field static final Integer presenceCountTreshold = 3
 @Field static final Integer defaultPollingInterval = 3600
+@Field static final Integer MAX_PING_MILISECONDS = 10000     // rtt more than 10 seconds will be ignored
+@Field static final Integer COMMAND_TIMEOUT = 10             // timeout time in seconds
 @Field static final Integer MaxRetries = 5
 @Field static final Integer NOT_SET = -1
                                 
@@ -207,12 +218,22 @@ private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
 // Parse incoming device messages to generate events
 def parse(String description) {
     checkDriverVersion()
+    unschedule('deviceCommandTimeout')    
     incRxCtr()
-    setPresent()
+    setHealthStatusOnline()    // was     setPresent()
     //if (settings?.logEnable) log.debug "${device.displayName} parse() descMap = ${zigbee.parseDescriptionAsMap(description)}"
     if (description?.startsWith('catchall:') || description?.startsWith('read attr -')) {
         Map descMap = zigbee.parseDescriptionAsMap(description)
-        if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "24") {        //getSETTIME
+        if (descMap?.clusterInt == zigbee.BASIC_CLUSTER && descMap.attrInt == 0x01) {
+            logDebug "Tuya check-in message (attribute ${descMap.attrId} reported: ${descMap.value})"
+            def now = new Date().getTime()
+            Map lastTxMap = stringToJsonMap( state.lastTx )
+            def timeRunning = now.toInteger() - (lastTxMap.pingTime ?: '0').toInteger()
+            if (timeRunning < MAX_PING_MILISECONDS) {
+                sendRttEvent()
+            } 
+        }
+        else if (descMap?.clusterInt==CLUSTER_TUYA && descMap?.command == "24") {        //getSETTIME
             logDebug "time synchronization request from device, descMap = ${descMap}"
             syncTuyaDateTime()
         } 
@@ -1223,7 +1244,7 @@ def updated() {
     else {
         unschedule(logsOff)
     }
-    runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
+    runIn( defaultPollingInterval, deviceHealthCheck, [overwrite: true, misfire: "ignore"])
     def fncmd
     def dp
     // tempCalibration
@@ -1378,8 +1399,8 @@ def checkDriverVersion() {
     if (state.driverVersion == null || driverVersionAndTimeStamp() != state.driverVersion) {
         if (txtEnable==true) log.debug "${device.displayName} updating the settings from the current driver version ${state.driverVersion} to the new version ${driverVersionAndTimeStamp()}"
         initializeVars( fullInit = false ) 
-        if (device.currentValue("presence", true) == null) {
-        	sendEvent(name: "presence", value: "unknown") 
+        if (device.currentValue("presence", true) != null) {
+        	device.deleteCurrentState("presence")                // removed from version 1.3.0
         }
         if (state.rxCounter != null) state.remove("rxCounter")
         if (state.txCounter != null) state.remove("txCounter")
@@ -1396,39 +1417,84 @@ def checkDriverVersion() {
     }
 }
 
+def setPresent() { setHealthStatusOnline() }    // trap for backward compatibility versions prior 1.3.0
+def pollPresence() { deviceHealthCheck() }      // trap for backward compatibility versions prior 1.3.0
+
 // called when any event was received from the Zigbee device in parse() method..
-def setPresent() {
-    if (device.currentValue("presence", true) != "present") {
-    	sendEvent(name: "presence", value: "present") 
-        runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
+def setHealthStatusOnline() {
+    if (!((device.currentValue('healthStatus') ?: 'unknown') in ['online']))  {
+        sendHealthStatusEvent('online')
+        logInfo "is now online!"
+        runIn( defaultPollingInterval, deviceHealthCheck, [overwrite: true, misfire: "ignore"])
     }
     state.notPresentCounter = 0
 }
 
-// called every 60 minutes from pollPresence()
-def checkIfNotPresent() {
+
+// called every 60 minutes    ( was checkIfNotPresent()  )
+def deviceHealthCheck() {
     if (state.notPresentCounter != null) {
         state.notPresentCounter = state.notPresentCounter + 1
         if (state.notPresentCounter >= presenceCountTreshold) {
-            if (device.currentValue("presence", true) != "not present") {
-    	        sendEvent(name: "presence", value: "not present")
-                if (logEnable==true) log.warn "${device.displayName} not present!"
+            if ((device.currentValue("healthStatus") ?: 'unknown') != 'offline' ) {
+                logWarn "not present!"
+                sendHealthStatusEvent('offline')
             }
         }
     }
     else {
         state.notPresentCounter = 0  
     }
-}
-
-// check for device offline every 60 minutes
-def pollPresence() {
-    if (logEnable) log.debug "${device.displayName} pollPresence()"
-    checkIfNotPresent()
     if (isBEOK())  {
         syncTuyaDateTime()
     }
-    runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
+    runIn( defaultPollingInterval, deviceHealthCheck, [overwrite: true, misfire: "ignore"])
+}
+
+void sendHealthStatusEvent(value) {
+    def descriptionText = "healthStatus changed to ${value}"
+    sendEvent(name: "healthStatus", value: value, descriptionText: descriptionText, isStateChange: true, isDigital: true)
+    if (value == 'online') {
+        logInfo "${descriptionText}"
+    }
+    else {
+        if (settings?.txtEnable) { log.warn "${device.displayName}} <b>${descriptionText}</b>" }
+    }
+}
+
+
+def ping() {
+    logInfo 'ping...'
+    scheduleCommandTimeoutCheck()
+    Map lastTxMap = stringToJsonMap(state.lastTx)
+    lastTxMap.pingTime = new Date().getTime()
+    sendZigbeeCommands( zigbee.readAttribute(zigbee.BASIC_CLUSTER, 0x01, [:], 0) )
+    state.lastTx = mapToJsonString( lastTxMap )
+}
+
+private void scheduleCommandTimeoutCheck(int delay = COMMAND_TIMEOUT) {
+    runIn(delay, 'deviceCommandTimeout')
+}
+
+void deviceCommandTimeout() {
+    logWarn 'no response received (sleepy device or offline?)'
+    sendRttEvent("timeout")
+}
+
+void sendRttEvent( String value=null) {
+    def now = new Date().getTime()
+    Map lastTxMap = stringToJsonMap( state.lastTx )
+    def timeRunning = now.toInteger() - (lastTxMap.pingTime ?: now).toInteger()
+    def descriptionText = "Round-trip time is ${timeRunning} (ms)"
+    if (value == null) {
+        logInfo "${descriptionText}"
+        sendEvent(name: "rtt", value: timeRunning, descriptionText: descriptionText, unit: "ms", isDigital: true)    
+    }
+    else {
+        descriptionText = "Round-trip time is ${value}"
+        logInfo "${descriptionText}"
+        sendEvent(name: "rtt", value: value, descriptionText: descriptionText, isDigital: true)    
+    }
 }
 
 
@@ -1445,6 +1511,7 @@ void initializeVars( boolean fullInit = true ) {
         resetStats()
         state.driverVersion = driverVersionAndTimeStamp()
     }
+    if (device.currentValue('healthStatus') == null) sendHealthStatusEvent('unknown')    
     //
     setLastRx( NOT_SET, NOT_SET)    // -1
     state.packetID = 0
@@ -1478,7 +1545,7 @@ def initialize() {
     if (true) "${device.displayName} Initialize()..."
     unschedule()
     initializeVars()
-    runIn( defaultPollingInterval, pollPresence, [overwrite: true, misfire: "ignore"])
+    runIn( defaultPollingInterval, deviceHealthCheck, [overwrite: true, misfire: "ignore"])
     setDeviceLimits()
     installed()
     updated()
@@ -1707,6 +1774,28 @@ def setBrightness( bri ) {
     }
     else {
         logWarn "brightness control is not supported for modelGroup ${getModelGroup()}"
+    }
+}
+
+def sensorSelection( sen ) {
+    ArrayList<String> cmds = []
+    def dp
+    if (true) {
+        dp = "2B"
+        def key = sensorOptions.find{it.value == sen}?.key
+        logDebug "sensorSelection ${sen} key=${key}"
+        if (key != null) {
+            def dpValHex = zigbee.convertToHexString(key as int, 2)
+            cmds += sendTuyaCommand(dp, DP_TYPE_ENUM, dpValHex)            
+            logDebug "changing sensor selection to ${sen} ($key)"
+            sendZigbeeCommands( cmds )    
+        }
+        else {
+            logWarn "invalid sensor selection ${sen}"
+        }
+    }
+    else {
+        logWarn "sensor selection is not supported for modelGroup ${getModelGroup()}"
     }
 }
 
