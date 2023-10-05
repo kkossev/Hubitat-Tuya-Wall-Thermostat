@@ -3,14 +3,14 @@
  *
  *  https://community.hubitat.com/t/release-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050 
  *
- *	Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- *	in compliance with the License. You may obtain a copy of the License at:
+ *    Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *    in compliance with the License. You may obtain a copy of the License at:
  *
- *		http://www.apache.org/licenses/LICENSE-2.0
+ *        http://www.apache.org/licenses/LICENSE-2.0
  *
- *	Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
- *	on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
- *	for the specific language governing permissions and limitations under the License.
+ *    Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *    on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *    for the specific language governing permissions and limitations under the License.
  * 
  *  Credits: Jaewon Park, iquix and many others
  * 
@@ -38,7 +38,8 @@
  * ver. 1.2.9 2022-12-05 kkossev  - bugfix: 'supportedThermostatFanModes' and 'supportedThermostatModes' proper JSON formatting; homeKitCompatibility option
  * ver. 1.2.10 2023-01-08 kkossev  - bugfix: AVATTO thermostat can not be switched off from HE dashboard;
  * ver. 1.2.11 2023-01-14 kkossev  - bugfix: BEOK setBrightness retry
- * ver. 1.3.0  2023-06-03 kkossev  - (dev. branch) added sensorSelection; replaced Presence w/ Health Status; added ping() and rtt; added '--- Select ---' default value for the sensorSelection command; added sensorSelection as attribute
+ * ver. 1.3.0  2023-06-03 kkossev  - added sensorSelection; replaced Presence w/ Health Status; added ping() and rtt; added '--- Select ---' default value for the sensorSelection command; added sensorSelection as attribute
+ * ver. 1.3.1  2023-10-04 kkossev  - (dev. branch)
  *
  *                                  TODO: tuyaAppVersion in Data section
  *                                  TODO: duplicate check for temperature reports is wrong ! (BEOK sends temp report every 6 seconds ! )
@@ -49,8 +50,8 @@
  *
 */
 
-def version() { "1.3.0" }
-def timeStamp() {"2023/06/03 7:19 PM"}
+def version() { "1.3.1" }
+def timeStamp() {"2023/10/05 5:07 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -65,10 +66,10 @@ import groovy.time.TimeCategory
 
 metadata {
     definition (name: "Tuya Wall Thermostat", namespace: "kkossev", author: "Krassimir Kossev", importUrl: "https://raw.githubusercontent.com/kkossev/Hubitat-Tuya-Wall-Thermostat/development/Tuya-Wall-Thermostat.groovy", singleThreaded: true ) {
-		capability "Actuator"
+        capability "Actuator"
         capability "Refresh"
         capability "Sensor"
-		capability "Temperature Measurement"
+        capability "Temperature Measurement"
         capability "Thermostat"
         capability "ThermostatHeatingSetpoint"
         capability "ThermostatCoolingSetpoint"
@@ -624,7 +625,7 @@ def parse(String description) {
                     }
                     // KK TODO if (valve > 3) => On !
                     break
-                case 0x6E :    	// (110) Low battery    DP_IDENTIFIER_BATTERY 0x6E
+                case 0x6E :        // (110) Low battery    DP_IDENTIFIER_BATTERY 0x6E
                     if (settings?.txtEnable) log.info "${device.displayName} Battery (DP= 0x6E) is: ${fncmd}"
                     break
                 case 0x70 :    // (112) // Reporting    DP_IDENTIFIER_REPORTING 0x70
@@ -650,7 +651,7 @@ def parse(String description) {
 
 
 def syncTuyaDateTime() {
-    // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)	local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
+    // The data format for time synchronization, including standard timestamps and local timestamps. Standard timestamp (4 bytes)    local timestamp (4 bytes) Time synchronization data format: The standard timestamp is the total number of seconds from 00:00:00 on January 01, 1970 GMT to the present.
     // For example, local timestamp = standard timestamp + number of seconds between standard time and local time (including time zone and daylight saving time).                 // Y2K = 946684800 
     def offset = 0
     def offsetHours = 0
@@ -1216,7 +1217,7 @@ def installed() {
     sendEvent(name: "heatingSetpoint", value: 20.0, unit: "\u00B0"+"C", isStateChange: true)
     sendEvent(name: "coolingSetpoint", value: 30.0, unit: "\u00B0"+"C", isStateChange: true)
     sendEvent(name: "temperature", value: 22.0, unit: "\u00B0"+"C", isStateChange: true)    
-    updateDataValue("lastRunningMode", "heat")	
+    updateDataValue("lastRunningMode", "heat")    
 
     //state.setpoint = 0
     unschedule()
@@ -1397,12 +1398,17 @@ def factoryReset( yes ) {
 
 def driverVersionAndTimeStamp() {version()+' '+timeStamp()}
 
+/**
+ * Checks if the driver version has changed and updates the settings if necessary.
+ * If the driver version has changed, the method initializes the variables, removes deprecated state variables,
+ * and resets the statistics. Finally, it updates the driver version in the state.
+ */
 def checkDriverVersion() {
     if (state.driverVersion == null || driverVersionAndTimeStamp() != state.driverVersion) {
         if (txtEnable==true) log.debug "${device.displayName} updating the settings from the current driver version ${state.driverVersion} to the new version ${driverVersionAndTimeStamp()}"
         initializeVars( fullInit = false ) 
         if (device.currentValue("presence", true) != null) {
-        	device.deleteCurrentState("presence")                // removed from version 1.3.0
+            device.deleteCurrentState("presence")                // removed from version 1.3.0
         }
         if (state.rxCounter != null) state.remove("rxCounter")
         if (state.txCounter != null) state.remove("txCounter")
@@ -1422,7 +1428,13 @@ def checkDriverVersion() {
 def setPresent() { setHealthStatusOnline() }    // trap for backward compatibility versions prior 1.3.0
 def pollPresence() { deviceHealthCheck() }      // trap for backward compatibility versions prior 1.3.0
 
-// called when any event was received from the Zigbee device in parse() method..
+// 
+/**
+ * Called when any event was received from the Zigbee device in parse() method..
+ * Sets the health status of the device to "online" if it is not already set to "online".
+ * Sends a health status event and logs that the device is now online.
+ * Schedules a device health check to run after the default polling interval.
+ */
 def setHealthStatusOnline() {
     if (!((device.currentValue('healthStatus') ?: 'unknown') in ['online']))  {
         sendHealthStatusEvent('online')
@@ -1433,7 +1445,13 @@ def setHealthStatusOnline() {
 }
 
 
-// called every 60 minutes    ( was checkIfNotPresent()  )
+/**
+ * called every 60 minutes
+ * Checks the health status of the device and sends an event if it is offline.
+ * Also synchronizes the date and time if the device is a BEOK thermostat.
+ *
+ * @return none
+ */
 def deviceHealthCheck() {
     if (state.notPresentCounter != null) {
         state.notPresentCounter = state.notPresentCounter + 1
@@ -1556,10 +1574,10 @@ def initialize() {
 
 def setDeviceLimits() { // for google and amazon compatability
     sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "°C", isStateChange: true)
-	sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true)
+    sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true)
     updateDataValue("lastRunningMode", "heat")
-	if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
-}	
+    if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
+}    
 
 // scheduled for call from setThermostatMode() 4 seconds after the mode was potentiually changed.
 // also, called every 1 minute from receiveCheck()
@@ -1703,9 +1721,9 @@ private getPACKET_ID() {
 }
 
 private getDescriptionText(msg) {
-	def descriptionText = "${device.displayName} ${msg}"
-	if (settings?.txtEnable) log.info "${descriptionText}"
-	return descriptionText
+    def descriptionText = "${device.displayName} ${msg}"
+    if (settings?.txtEnable) log.info "${descriptionText}"
+    return descriptionText
 }
 
 def logsOff(){
@@ -1816,11 +1834,11 @@ def calibration( offset ) {
 }
 
 Integer safeToInt(val, Integer defaultVal=0) {
-	return "${val}"?.isInteger() ? "${val}".toInteger() : defaultVal
+    return "${val}"?.isInteger() ? "${val}".toInteger() : defaultVal
 }
 
 Double safeToDouble(val, Double defaultVal=0.0) {
-	return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
+    return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
 }
 
 def getBatteryPercentageResult(rawValue) {
@@ -1980,6 +1998,7 @@ def logWarn(msg) {
      
 def test() {
     incRxCtr()
+    def a = 5
 }
 
 
