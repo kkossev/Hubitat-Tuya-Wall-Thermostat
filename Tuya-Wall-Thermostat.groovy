@@ -41,6 +41,7 @@
  * ver. 1.3.0  2023-06-03 kkossev  - added sensorSelection; replaced Presence w/ Health Status; added ping() and rtt; added '--- Select ---' default value for the sensorSelection command; added sensorSelection as attribute
  * ver. 1.3.1  2023-10-29 kkossev  - (dev. branch) - added 'HY369' group (TS0601 _TZE200_ckud7u2l)
  *
+ *                                  TODO: add state.deviceProfile
  *                                  TODO: HY369 mode processing (dp=4)
  *                                  TODO: tuyaAppVersion in Data section
  *                                  TODO: duplicate check for temperature reports is wrong ! (BEOK sends temp report every 6 seconds ! )
@@ -52,7 +53,7 @@
 */
 
 def version() { "1.3.1" }
-def timeStamp() {"2023/10/29 11:05 PM"}
+def timeStamp() {"2023/10/30 2:27 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -82,7 +83,7 @@ metadata {
         
         attribute "childLock", "enum", ["off", "on"]
         attribute "brightness", "enum", ['off', 'low', 'medium', 'high']
-        attribute "healthStatus", "enum", ["offline", "online"]
+        attribute "healthStatus", "enum", ["offline", "online", "unknown"]
         attribute "sensorSelection", "enum", sensorOptions.values() as List<String>
         attribute "rtt", "number" 
         
@@ -159,6 +160,10 @@ metadata {
                                          // vendor: Hysen model: HY369-ZB    /
                                          // https://www.aliexpress.com/item/4000742201198.html    
                                          // https://github.com/zigbeefordomoticz/wiki/blob/38206248debb348e40e3718d07b4e0ec5baa454c/en-eng/Technical/Tuya-0xEF00.md?plain=1#L102  
+    '_TZE200_ywdxldoj'  : 'HY369',       // 
+    '_TZE200_cwnjrr72'  : 'HY369',       // 
+    '_TZE200_pvvbommb'  : 'HY369',       // 
+    '_TZE200_2atgpdho'  : 'HY369',       // added 10/30/2023
     '_TZE200_zion52ef'  : 'TEST3',       // TRV MOES => fn = "0001 > off:  dp = "0204"  data = "02" // off; heat:  dp = "0204"  data = "01" // on; auto: n/a !; setHeatingSetpoint(preciseDegrees):   fn = "00" SP = preciseDegrees *10; dp = "1002"
     '_TZE200_c88teujp'  : 'TEST3',       // TRV "SEA-TR", "Saswell", model "SEA801" (to be tested)
     '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
@@ -424,8 +429,8 @@ def parse(String description) {
                     device.updateSetting( "frostProtection",  [value:(fncmd==0?false:true), type:"bool"] )
                     break;
                 case 0x0D :    // (13) BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D MOES, LIDL
-                    // TODO 'HY369' - unknown?
                     if (settings?.txtEnable) log.info "${device.displayName} Child Lock (dp=${dp}) is: ${fncmd}"    // 0:function disabled / 1:function enabled
+                    sendEvent(name: "childLock", value: (fncmd == 0) ? "off" : "on" )
                     break
                 case 0x10 :    // (16): Heating setpoint AVATTO; x5hSetTemp BEOK
                     processTuyaHeatSetpointReport( fncmd )
@@ -552,9 +557,11 @@ def parse(String description) {
                         device.updateSetting("tempCeiling", [value: fncmd as int , type:"number"])    // whole number
                     }
                     else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 Min temperature limit (dp=${dp}) is: ${fncmd}"
+                        logInfo "HY369 Min temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
+                        device.updateSetting("minTemp", [value: (fncmd/10) as int , type:"number"])
+
                     }
-                    else { // TODO 'HY369'- unknown?
+                    else {
                         if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit (UNPROCESSED) is: ${fncmd}"
                         // TODO - set minTemp for AVATTO and MOES ???
                     }
@@ -570,7 +577,8 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} output reverse is ${fncmd==0?'off':'on'} (${fncmd})"
                     }
                     else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 Max temperature limit (dp=${dp}) is: ${fncmd}"
+                        logInfo "HY369 Max temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
+                        device.updateSetting("maxTemp", [value: (fncmd/10) as int , type:"number"])
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} unknown parameter is: ${fncmd} (dp=${dp}, fncmd=${fncmd}, data=${descMap?.data})"
@@ -663,7 +671,7 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO unknown parameter (108) is: ${fncmd}"      // TODO: check AVATTO usage                                                 
                     }
                     else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 opening percentage  (dp=${dp}) is: ${fncmd/10.0}"
+                        logInfo "HY369 opening percentage  (dp=${dp}) is: ${fncmd} %"
                     }
                     else { // TODO 'HY369'- valveposition  TODO - event!                                              // Valve position in % (also // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_4 0x6D // Not finished)
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) valve position is: ${fncmd} (dp=${dp}, fncmd=${fncmd})"
@@ -826,7 +834,7 @@ def processTuyaCalibration( dp, fncmd )
     }
     else  if (getModelGroup() in ['HY369'] ) { // 0x2C
         device.updateSetting("tempCalibration", [value: temp / 10.0 , type:"decimal"])
-        logDebug "HY369 (dp=0x2C) calibration is: ${temp}"
+        logDebug "HY369 (dp=0x2C) calibration is: ${temp/10.0}"
     }
     else {
         if (settings?.logEnable) log.warn "${device.displayName} UNSUPPORTED temperature calibration for modelGroup=${getModelGroup()} : ${temp} (dp=${dp}, fncmd=${fncmd}) "
@@ -1005,6 +1013,7 @@ def sendTuyaBoostModeOff() {
 }
 
 // called from setThermostatMode( mode ) only
+// TODO - refactor (switch by model) !
 def sendTuyaThermostatMode( mode ) {
     ArrayList<String> cmds = []
     def dp = ""
@@ -1308,9 +1317,26 @@ def installed() {
 
 def updated() {
     ArrayList<String> cmds = []
-    if (modelGroupPreference == null) {
-        device.updateSetting("modelGroupPreference", "Auto detect")
+    if (settings?.modelGroupPreference == null) {
+        device.updateSetting("modelGroupPreference", [value:"Auto detect", type:"enum"])
+        state.deviceProfile = "AUTO_DETECT"
     }
+
+    // log.warn "settings?.modelGroupPreference = ${settings?.modelGroupPreference}"
+    if (settings?.modelGroupPreference != null) {
+        logDebug "current state.deviceProfile=${state.deviceProfile}, settings.modelGroupPreference=${settings?.modelGroupPreference}, getModelGroup()=${getModelGroup()}"
+        if (settings?.modelGroupPreference != state.deviceProfile) {
+            logWarn "changing the device profile from ${state.deviceProfile} to ${settings?.modelGroupPreference}"
+            state.deviceProfile = settings?.modelGroupPreference
+            initializeVars(fullInit = false) 
+            //resetPreferencesToDefaults(debug=true)
+            logInfo "press F5 to refresh the page"
+        }
+    }
+    else {
+        logDebug "modelGroupPreference is not set"
+    }
+
     /* unconditional */log.info "Updating ${device.getLabel()} (${device.getName()}) model ${device.getDataValue('model')} manufacturer <b>${device.getDataValue('manufacturer')}</b> modelGroupPreference = <b>${modelGroupPreference}</b> (${getModelGroup()})"
     if (settings?.txtEnable) log.info "Force manual is <b>${forceManual}</b>; Resend failed is <b>${resendFailed}</b>"
     if (settings?.txtEnable) log.info "Debug logging is <b>${logEnable}</b>; Description text logging is <b>${txtEnable}</b>"
@@ -1411,8 +1437,14 @@ def updated() {
         }
     }
     
-    /* unconditional */ log.info "${device.displayName} Update finished"
-    sendZigbeeCommands( cmds ) 
+    if (cmds.size() > 3) {
+        logInfo "Update finished"
+        logDebug "cmds = ${cmds}"
+        sendZigbeeCommands( cmds )
+    }
+    else {
+        if (settings?.logEnable) log.debug "${device.displayName} nothing to update"
+    }
     //
     if (isBEOK()) {
         syncTuyaDateTime()
@@ -1838,6 +1870,7 @@ def childLock( mode ) {
     def dp
     if (getModelGroup() in ["AVATTO", "BEOK"]) {dp = "28"}
     else if (getModelGroup() in ["BRT-100"]) {dp = "0D"}
+    else if (getModelGroup() in ["HY369"]) {dp = "07"}
     else {
         if (settings?.txtEnable) log.warn "${device.displayName} child lock mode: ${mode} is not supported for modelGroup${getModelGroup()}"
     }
