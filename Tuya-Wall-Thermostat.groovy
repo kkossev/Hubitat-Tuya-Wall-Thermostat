@@ -55,7 +55,7 @@
 */
 
 def version() { "1.3.2" }
-def timeStamp() {"2023/11/14 9:33 PM"}
+def timeStamp() {"2023/11/14 11:20 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -168,7 +168,7 @@ metadata {
     '_TZE200_cwnjrr72'  : 'HY369',       // 
     '_TZE200_pvvbommb'  : 'HY369',       // 
     '_TZE200_2atgpdho'  : 'HY369',       // added 10/30/2023
-    '_TZE200_bvrlmajk'  : 'TRV07',       // added 11/14/2023
+    '_TZE200_bvrlmajk'  : 'TRV07',       // added 11/14/2023    // https://github.com/OzGav/zigbee-herdsman-converters/blob/d2e4e8ed359163ea8553fcae1cf2fa945b0f4c62/devices/tuya.js#L2194 
     '_TZE200_zion52ef'  : 'TEST3',       // TRV MOES => fn = "0001 > off:  dp = "0204"  data = "02" // off; heat:  dp = "0204"  data = "01" // on; auto: n/a !; setHeatingSetpoint(preciseDegrees):   fn = "00" SP = preciseDegrees *10; dp = "1002"
     '_TZE200_c88teujp'  : 'TEST3',       // TRV "SEA-TR", "Saswell", model "SEA801" (to be tested)
     '_TZE200_xxxxxxxx'  : 'UNKNOWN',     
@@ -365,6 +365,7 @@ def parse(String description) {
                             break    // no more processing for BEOK!
                         case 'BRT-100' :    // BRT-100 Thermostat heatsetpoint # 0x0202 #
                         case 'HY369' :
+                        case 'TRV07' :
                         case 'TEST3' :
                             processTuyaHeatSetpointReport( fncmd )              // target temp, in degrees (int!)
                             break
@@ -435,7 +436,7 @@ def parse(String description) {
                     break
                 case 0x08 :    // DP_IDENTIFIER_WINDOW_OPEN2 0x08    // BRT-100
                     if (getModelGroup() in ['TRV07']) {    
-                        logInfo "TRV07 unknown dp=${dp} fncmd=${fncmd}" // ? fncmd=0
+                        logInfo "TRV07 unknown dp=${dp} (open_window?) fncmd=${fncmd}" // ? fncmd=0
                     }
                     else {                
                         logInfo "Open window detection MODE (dp=${dp}) is: ${fncmd}"    //0:function disabled / 1:function enabled
@@ -465,7 +466,7 @@ def parse(String description) {
                     else {
                         logInfo "unknown dp=${dp} fncmd=${fncmd}"
                     }
-                case 0x10 :    // (16): Heating setpoint AVATTO; x5hSetTemp BEOK; isTRV07() 
+                case 0x10 :    // (16): Heating setpoint AVATTO; x5hSetTemp BEOK;   // TODO isTRV07() - maybe heatingSetpoint  ??? 
                     if (getModelGroup() in ['TRV07']) {    
                         logInfo "TRV07 Maximum temperature is: ${fncmd/10} (raw ${fncmd})"    // 30.0
                     }
@@ -553,7 +554,7 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} temperature scale is: ${fncmd==0?'C':'F'} (${fncmd})"
                     }
                     break
-                case 0x18 :    // (24) : Current (local) temperature; x5hCurrentTemp BEOK
+                case 0x18 :    // (24) : Current (local) temperature; x5hCurrentTemp BEOK TRV07
                     logDebug "processTuyaTemperatureReport dp_id=${dp_id} <b>dp=${dp}</b> :"
                     processTuyaTemperatureReport( fncmd )
                     break
@@ -563,7 +564,7 @@ def parse(String description) {
                     }
                     if (settings?.txtEnable) log.info "${device.displayName} Min temperature limit is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                     break
-                case 0x1B :    // (27) temperature calibration/correction (offset in degrees) for AVATTO, Moes and Saswell; x5hTempCorrection BEOK
+                case 0x1B :    // (27) temperature calibration/correction (offset in degrees) for AVATTO, Moes and Saswell; x5hTempCorrection BEOK TRV07?
                     processTuyaCalibration( dp, fncmd )
                     break
                 case 0x1D :    // (29) AVATTO
@@ -572,7 +573,7 @@ def parse(String description) {
                 case 0x1E :    // (30) x5hWeeklyProcedure BEOK
                     if (settings?.txtEnable) log.info "${device.displayName} weekly procedure is: ${fncmd}"
                     break
-                case 0x1F :    // (31) x5hWorkingDaySetting BEOK
+                case 0x1F :    // (31) x5hWorkingDaySetting BEOK TRV07?
                     if (settings?.txtEnable) log.info "${device.displayName} working day setting is: ${fncmd}"
                     break
                 case 0x23 :    // (35) LIDL BatteryVoltage
@@ -871,7 +872,7 @@ def processTuyaHeatSetpointReport( fncmd )
     if (getModelGroup() in ['AVATTO', 'MOES', 'BRT-100' ]) {
         setpointValue = fncmd as int
     }
-    else if (getModelGroup() in ['BEOK', 'HY369', 'TEST3']) {   // added HYS369 10/29/2023 -  current room temp (decidegree)
+    else if (getModelGroup() in ['BEOK', 'HY369', 'TRV07','TEST3']) {   // added HYS369 10/29/2023 -  current room temp (decidegree)
             setpointValue = fncmd / 10.0
     }
     else {
@@ -1234,9 +1235,12 @@ def sendTuyaHeatingSetpoint( temperature ) {
             settemp = temperature * 10               
             break
         case 'BRT-100' :                         // BRT-100
-        case 'TRV07' :                           // added 11/14/2023
             dp = "02"                            
             settemp = temperature
+            break
+        case 'TRV07' :                           // added 11/14/2023
+            dp = "02"                            
+            settemp = temperature * 2 
             break
         case 'HY369' :
             dp = "02"
@@ -1274,7 +1278,7 @@ def setHeatingSetpoint( temperature ) {
     def previousSetpoint = device.currentState('heatingSetpoint', true).value /*as int*/
     double tempDouble
     logDebug "setHeatingSetpoint temperature = ${temperature}  as int = ${temperature as int} (previousSetpointt = ${previousSetpoint})"
-    if (isBEOK()) {
+    if (isBEOK() || isTRV07()) {
         if (settings?.logEnable) log.debug "0.5 C correction of the heating setpoint${temperature} for BEOK"
         tempDouble = safeToDouble(temperature)
         tempDouble = Math.round(tempDouble * 2) / 2.0
