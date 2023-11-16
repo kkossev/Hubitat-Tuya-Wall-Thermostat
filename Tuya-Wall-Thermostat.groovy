@@ -56,7 +56,7 @@
 */
 
 def version() { "1.3.2" }
-def timeStamp() {"2023/11/16 16:18 PM"}
+def timeStamp() {"2023/11/16 16:43 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -85,6 +85,7 @@ metadata {
         capability "HealthCheck"
         
         attribute "childLock", "enum", ["off", "on"]
+        attribute "windowOpenDetection", "enum", ["off", "on"]
         attribute "brightness", "enum", ['off', 'low', 'medium', 'high']
         attribute "healthStatus", "enum", ["offline", "online", "unknown"]
         attribute "sensorSelection", "enum", sensorOptions.values() as List<String>
@@ -100,6 +101,7 @@ metadata {
         }
         command "initialize", [[name: "Initialize the thermostat after switching drivers.  \n\r   ***** Will load device default values! *****" ]]
         command "childLock",  [[name: "ChildLock", type: "ENUM", constraints: ["off", "on"], description: "Select Child Lock mode"] ]
+        command "windowOpenDetection",  [[name: "windowOpenDetection", type: "ENUM", constraints: ["off", "on"], description: "Select Window Open Detection mode"] ]
         command "setBrightness",  [[name: "setBrightness", type: "ENUM", constraints: ["off", "low", "medium", "high"], description: "Set LCD brightness for BEOK thermostats"] ]
         command "sensorSelection",  [[name: "sensorSelection", type: "ENUM", constraints: ["99":"--- Select ---"] + sensorOptions, description: "Select the temperature sensor"] ]
         
@@ -437,8 +439,9 @@ def parse(String description) {
                     else if (getModelGroup() == 'HY369') {
                         logInfo "HY369 Child Lock (dp=${dp}) is: ${fncmd}"    //  [0] unlocked [1] locked
                     }
-                    else if (getModelGroup() in ['TRV07']) {    
-                        logInfo "TRV07 Window status dp=${dp} fncmd=${fncmd}" // 
+                    else if (getModelGroup() in ['TRV07']) {     // Open Window function
+                        logInfo "TRV07 Window Open status dp=${dp} fncmd=${fncmd}" //
+                        sendEvent(name: "windowOpen", value: fncmd==0 ? 'false' : 'true')
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} valve starts moving: 0x${fncmd}"    // BRT-100  00-> opening; 01-> closed!
@@ -451,7 +454,8 @@ def parse(String description) {
                     }
                     break
                 case 0x08 :     // DP_IDENTIFIER_WINDOW_OPEN2 0x08    // BRT-100 TRV07
-                    logInfo "Open window detection MODE (dp=${dp}) is: ${fncmd}"    //0:function disabled / 1:function enabled
+                    logInfo "Window Open Detection MODE (dp=${dp}) is: ${fncmd==0 ? 'off' : 'on'}"    //0:function disabled / 1:function enabled
+                    sendEvent(name: "windowOpenDetection", value: fncmd==0 ? 'off' : 'on')
                     break
                 case 0x09 :     // BRT-100 unknown function
                     logInfo "BRT-100 unknown function (dp=${dp}) is: ${fncmd}"
@@ -2052,6 +2056,20 @@ def childLock( mode ) {
     sendZigbeeCommands( cmds )    
 }
 
+def windowOpenDetection( mode ) {
+    ArrayList<String> cmds = []
+    def dp
+    if (getModelGroup() in ["TRV07"]) {dp = "08"}
+    else {
+        if (settings?.txtEnable) log.warn "${device.displayName} Window Open Detection mode: ${mode} is not supported r not implemented for modelGroup${getModelGroup()}"
+    }
+    // TODO - check childLock for MOES
+    if (mode == "off") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "00")}
+    else if (mode == "on") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "01")}
+    else {logWarn "unsupported Window Open Detection mode ${mode} !"}
+    logInfo "sending Window Open Detectio mode : ${mode}"
+    sendZigbeeCommands( cmds )    
+}
 
 def setBrightness( bri ) {
     ArrayList<String> cmds = []
