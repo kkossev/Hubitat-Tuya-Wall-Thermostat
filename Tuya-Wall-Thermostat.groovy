@@ -56,7 +56,7 @@
 */
 
 def version() { "1.3.2" }
-def timeStamp() {"2023/11/16 12:55 PM"}
+def timeStamp() {"2023/11/16 14:28 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -307,7 +307,12 @@ def parse(String description) {
                             }
                             break
                         case 'BRT-100' :    // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
-                        case 'TRV07' :      // TODO: check TRV07 mode enums !!!!!!!!!!!
+                        case 'TRV07' :      // 
+                            logDebug "${device.displayName} mode is ${fncmd} (<b>dp=${dp}</b> fncmd=${fncmd})"
+                            def thermostatModes = ["auto", "heating", "off", "on"] // using "heating" for consistency, 01 is defined as manual in documentation
+                            def thermostatMode = thermostatModes[fncmd]
+                            sendEvent(name: "thermostatMode", value: thermostatMode)
+                            break
                         case 'TEST3' :
                             processBRT100Presets( dp, fncmd )
                             break
@@ -374,7 +379,7 @@ def parse(String description) {
                     }                   
                     break
                 case 0x03 :    // BEOK x5hWorkingStatus (thermostatOperatingState) !
-                    logDebug "processing command dp=${dp} fncmd=${fncmd} (lastThermostatMode=${state.lastThermostatMode})"
+                    logDebug "processing command dp=${dp} fncmd=${fncmd} (lastThermostatMode=${state.lastThermostatMode})" // TODO: See which models this is actually there for, and move it to said model only
                     switch (getModelGroup()) {
                         case 'AVATTO' :
                         case 'BEOK' :
@@ -1171,6 +1176,10 @@ def sendTuyaThermostatMode( mode ) {
                 }
                 return sendTuyaCommand(dp, DP_TYPE_ENUM, fn)    // BRT-100 DP=1 needs DP_TYPE_ENUM!                
             }
+            else if (model in ['TRV07']) {
+                dp = "01"
+                fn = "02"
+            }
             else {    // all other models
                 dp = "01"                            
                 fn = "00"    // changed 10/23/2022 defauilt to DP1 FN=0 
@@ -1188,6 +1197,10 @@ def sendTuyaThermostatMode( mode ) {
                 dp = "01"
                 fn = "01"
                 return sendTuyaCommand(dp, DP_TYPE_ENUM, fn)    // BRT-100 DP=1 needs DP_TYPE_ENUM!
+            }
+            else if (model in ["TRV07"]) {
+                dp = "01"
+                fn = "01"
             }
             else {    // all other models    // not tested!
                 dp = "02"                            
@@ -1207,6 +1220,10 @@ def sendTuyaThermostatMode( mode ) {
                 dp = "01"                       
                 fn = "00"  
                 return sendTuyaCommand(dp, DP_TYPE_ENUM, fn)    // BRT-100 DP=1 needs DP_TYPE_ENUM!
+            }
+            else if (model in ["TRV07"]) {
+                dp = "01"
+                fn = "00"
             }
             else {    // all other models    // not tested!
                 dp = "02"                            
@@ -1228,6 +1245,15 @@ def sendTuyaThermostatMode( mode ) {
             if (settings?.txtEnable) log.warn "${device.displayName} 'cool' mode is not supported by this device"
             return null
             break
+        case "on" :
+            if (model in ["TRV07"]) {
+                dp = "01"
+                fn = "03"
+            }
+            else {    // all other models do not support "on" ! Is this actually true???
+                if (settings?.txtEnable) log.warn "${device.displayName} 'on' mode is not supported by this device"
+                return null
+            }      
         default :
             log.warn "Unsupported mode ${mode}"
             return null
