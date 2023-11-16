@@ -56,7 +56,7 @@
 */
 
 def version() { "1.3.2" }
-def timeStamp() {"2023/11/16 9:52 АM"}
+def timeStamp() {"2023/11/16 10:58 АM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -409,10 +409,20 @@ def parse(String description) {
                 case 0x05 :    // BRT-100 ?
                     if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
                     break
-                case 0x06 :    // TRV7 "Working status" - TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                    if (settings?.txtEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==1 ? 'heating' : 'idle'}"}
-                    else if (settings?.logEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==1 ? 'heating' : 'idle'} (dp=${dp}, fncmd=${fncmd})"}
-                    sendThermostatOperatingStateEvent(fncmd==1 ? "heating" : "idle")
+                case 0x06 :
+                    switch (getModelGroup()) {
+                        case 'TRV07' :
+                            if (settings?.txtEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==1 ? 'heating' : 'idle'}"}
+                            else if (settings?.logEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==1 ? 'heating' : 'idle'} (dp=${dp}, fncmd=${fncmd})"}
+                            sendThermostatOperatingStateEvent(fncmd==1 ? "heating" : "idle")
+                            break
+                        default :
+                            if (settings?.txtEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? 'heating' : 'idle'}"}
+                            else if (settings?.logEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==0 ? 'heating' : 'idle'} (dp=${dp}, fncmd=${fncmd})"}
+                            sendThermostatOperatingStateEvent(fncmd==0 ? "heating" : "idle")
+                            break
+                    }
+
                     break
                 case 0x07 :    // others Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_1 0x07    // 0x0407 > starting moving     // sound for X5H thermostat
                     if (isBEOK()) {
