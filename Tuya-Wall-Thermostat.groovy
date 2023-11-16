@@ -56,7 +56,7 @@
 */
 
 def version() { "1.3.2" }
-def timeStamp() {"2023/11/16 10:58 АM"}
+def timeStamp() {"2023/11/16 12:55 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -752,7 +752,8 @@ def parse(String description) {
                         logInfo "AVATTO unknown parameter (108) is: ${fncmd}"      // fncmd=0 TODO: check AVATTO usage                                                 
                     }
                     else if (getModelGroup() in ['TRV07']) {
-                        logInfo "TRV07 Valve (108) is: ${fncmd}"      // TODO - send level event!????                                              
+                        logInfo "TRV07 Valve (108) is open: ${fncmd/10}%"
+                        sendEvent(name: "valve", value: fncmd/10)                                              
                     }
                     else if (getModelGroup in ['HY369']) {
                         logInfo "HY369 eco mode temperature  (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})"   // (decidegree)
