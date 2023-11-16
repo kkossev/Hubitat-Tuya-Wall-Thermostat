@@ -40,7 +40,7 @@
  * ver. 1.2.11 2023-01-14 kkossev  - bugfix: BEOK setBrightness retry
  * ver. 1.3.0  2023-06-03 kkossev  - added sensorSelection; replaced Presence w/ Health Status; added ping() and rtt; added '--- Select ---' default value for the sensorSelection command; added sensorSelection as attribute
  * ver. 1.3.1  2023-10-29 kkossev  - (dev. branch) - added 'HY369' group (TS0601 _TZE200_ckud7u2l); add state.deviceProfile
- * ver. 1.3.2  2023-11-15 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk  Avatto TRV07 
+ * ver. 1.3.2  2023-11-16 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk Avatto TRV07 
  *
  *                                  TODO: parse multiple Tuya DPs in one message;
  *                                  TODO: add option to send digital heatingSetpoint events every hour if no updates are received from the device;
@@ -56,7 +56,7 @@
 */
 
 def version() { "1.3.2" }
-def timeStamp() {"2023/11/15 12:33 PM"}
+def timeStamp() {"2023/11/16 7:41 АM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -81,8 +81,8 @@ metadata {
         capability "ThermostatOperatingState"
         capability "ThermostatSetpoint"
         capability "ThermostatMode"
-        capability "Battery"                    // BRT-100
-        capability "HealthCheck"                // ver. 1.3.0. replaced previously used "Presence Sensor" 
+        capability "Battery"
+        capability "HealthCheck"
         
         attribute "childLock", "enum", ["off", "on"]
         attribute "brightness", "enum", ['off', 'low', 'medium', 'high']
@@ -233,8 +233,6 @@ private getDP_TYPE_VALUE()      { "02" }    // [ 4 byte value ]
 private getDP_TYPE_STRING()     { "03" }    // [ N byte string ]
 private getDP_TYPE_ENUM()       { "04" }    // [ 0-255 ]
 private getDP_TYPE_BITMAP()     { "05" }    // [ 1,2,4 bytes ] as bits
-
-
 
 
 // Parse incoming device messages to generate events
@@ -1262,7 +1260,7 @@ def sendTuyaHeatingSetpoint( temperature ) {
             break
         case 'TRV07' :                           // added 11/14/2023
             dp = "02"                            
-            settemp = temperature * 2 
+            settemp = temperature * 10
             break
         case 'HY369' :
             dp = "02"
