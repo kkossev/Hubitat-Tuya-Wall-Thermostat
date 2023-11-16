@@ -56,7 +56,7 @@
 */
 
 def version() { "1.3.2" }
-def timeStamp() {"2023/11/16 14:28 PM"}
+def timeStamp() {"2023/11/16 16:18 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -460,7 +460,7 @@ def parse(String description) {
                     logInfo "frost protection is: ${fncmd==0?'off':'on'} (0x${fncmd})"
                     device.updateSetting( "frostProtection",  [value:(fncmd == 0) ? false : true, type:"bool"] )
                     break;
-                case 0x0B :     // (12)
+                case 0x0C :     // (12)
                     logInfo "TRV07 Child lock dp=${dp} fncmd=${fncmd}" // TRV07
                     sendEvent(name: "childLock", value: (fncmd == 0) ? "off" : "on" )
                     break
@@ -2039,6 +2039,7 @@ def childLock( mode ) {
     if (getModelGroup() in ["AVATTO", "BEOK"]) {dp = "28"}
     else if (getModelGroup() in ["BRT-100"]) {dp = "0D"}
     else if (getModelGroup() in ["HY369"]) {dp = "07"}
+    else if (getModelGroup() in ["TRV07"]) {dp = "0C"}
     else {
         if (settings?.txtEnable) log.warn "${device.displayName} child lock mode: ${mode} is not supported for modelGroup${getModelGroup()}"
     }
@@ -2046,7 +2047,7 @@ def childLock( mode ) {
     if (mode == "off") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "00")}
     else if (mode == "on") {cmds += sendTuyaCommand(dp, DP_TYPE_BOOL, "01")}
     else {logWarn "unsupported child lock mode ${mode} !"}
-    sendEvent(name: "childLock", value: mode)
+    //sendEvent(name: "childLock", value: mode) // I think the event should be sent when the confirmation is received from the device, and not before the command is sent.
     logInfo "sending child lock mode : ${mode}"
     sendZigbeeCommands( cmds )    
 }
