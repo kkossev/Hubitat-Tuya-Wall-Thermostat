@@ -41,6 +41,7 @@
  * ver. 1.3.0  2023-06-03 kkossev  - added sensorSelection; replaced Presence w/ Health Status; added ping() and rtt; added '--- Select ---' default value for the sensorSelection command; added sensorSelection as attribute
  * ver. 1.3.1  2023-10-29 kkossev  - (dev. branch) - added 'HY369' group (TS0601 _TZE200_ckud7u2l); add state.deviceProfile
  * ver. 1.3.2  2023-11-16 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk Avatto TRV07 
+ * ver. 1.3.3  2023-11-16 vnistor  - (dev. branch) - added modes, valve, childLock, windowOpen, windowOpenDetection, thermostatOperatingState to TS0601 _TZE200_bvrlmajk Avatto TRV07 
  *
  *                                  TODO: parse multiple Tuya DPs in one message;
  *                                  TODO: add option to send digital heatingSetpoint events every hour if no updates are received from the device;
@@ -55,7 +56,7 @@
  *
 */
 
-def version() { "1.3.2" }
+def version() { "1.3.3" }
 def timeStamp() {"2023/11/16 16:43 PM"}
 
 import groovy.json.*
