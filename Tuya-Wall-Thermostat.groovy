@@ -40,9 +40,11 @@
  * ver. 1.2.11 2023-01-14 kkossev  - bugfix: BEOK setBrightness retry
  * ver. 1.3.0  2023-06-03 kkossev  - added sensorSelection; replaced Presence w/ Health Status; added ping() and rtt; added '--- Select ---' default value for the sensorSelection command; added sensorSelection as attribute
  * ver. 1.3.1  2023-10-29 kkossev  - (dev. branch) - added 'HY369' group (TS0601 _TZE200_ckud7u2l); add state.deviceProfile
- * ver. 1.3.2  2023-11-16 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk Avatto TRV07 
+ * ver. 1.3.2  2023-11-16 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk Avatto TRV07 ; added Immax Neo Lite TRV 07732L TS0601 _TZE200_rufdtfyv as HY367; 
  * ver. 1.3.3  2023-11-16 vnistor  - (dev. branch) - added modes, valve, childLock, windowOpen, windowOpenDetection, thermostatOperatingState to TS0601 _TZE200_bvrlmajk Avatto TRV07 
+ * ver. 1.3.4  2023-11-16 kkossev  - (dev. branch) - merged versions 1.3.2 and 1.3.3; 
  *
+ *                                  TODO: 
  *                                  TODO: parse multiple Tuya DPs in one message;
  *                                  TODO: add option to send digital heatingSetpoint events every hour if no updates are received from the device;
  *                                  TODO: remove homeKitCompatibility option;
@@ -56,8 +58,8 @@
  *
 */
 
-def version() { "1.3.3" }
-def timeStamp() {"2023/11/16 16:43 PM"}
+def version() { "1.3.4" }
+def timeStamp() {"2023/11/16 8:00 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -125,6 +127,8 @@ metadata {
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_ckud7u2l",  deviceJoinName: "Moes HY369 TRV" // added 10/29/2023
         // Avatto TRV07
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0004,0005,EF00,0000", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_bvrlmajk",  deviceJoinName: "AVATTO TRV07"  // added 11/14/2023 // https://community.hubitat.com/t/release-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050/215?u=kkossev
+        // Immax Neo Lite TRV 07732L
+        fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0005,EF00", outClusters:"0019,000A", model:"TS0601", manufacturer:"_TZE200_rufdtfyv",  deviceJoinName: "Immax Neo Lite TRV 07732L" // HY367 added 11/16/2023
         
     }
     preferences {
@@ -135,7 +139,7 @@ metadata {
             input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
             input (name: "minTemp", type: "number", title: "<b>Minimum Temperature</b>", description: "<i>The Minimum temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "0..60")
             input (name: "maxTemp", type: "number", title: "<b>Maximum Temperature</b>", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "15..95")
-            input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect":"Auto detect", "AVATTO":"AVATTO", "MOES":"MOES", "BEOK":"BEOK", "BRT-100":"BRT-100", "HY369":"HY369", "TRV07":"TRV07"], defaultValue: "Auto detect", required: false)        
+            input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect":"Auto detect", "AVATTO":"AVATTO", "MOES":"MOES", "BEOK":"BEOK", "BRT-100":"BRT-100", "HY367":"HY367", "HY369":"HY369", "TRV07":"TRV07"], defaultValue: "Auto detect", required: false)        
             input (name: "tempCalibration", type: "decimal", title: "<b>Temperature Calibration</b>", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
             if (!(getModelGroup() in ['BRT-100'])) {
                 input (name: "hysteresis", type: "decimal", title: "<b>Hysteresis</b>", description: "<i>Adjust switching differential range: 0.5 .. 5.0 C</i>", defaultValue: 1.0, range: "0.5..5.0")        // not available for BRT-100 !
@@ -172,6 +176,7 @@ metadata {
     '_TZE200_cwnjrr72'  : 'HY369',       // 
     '_TZE200_pvvbommb'  : 'HY369',       // 
     '_TZE200_2atgpdho'  : 'HY369',       // added 10/30/2023
+    '_TZE200_rufdtfyv'  : 'HY367',       // added 11/16/2023    https://community.hubitat.com/t/release-tuya-wall-mount-thermostat-water-electric-floor-heating-zigbee-driver/87050/232?u=kkossev
     '_TZE200_bvrlmajk'  : 'TRV07',       // added 11/14/2023    // https://github.com/OzGav/zigbee-herdsman-converters/blob/d2e4e8ed359163ea8553fcae1cf2fa945b0f4c62/devices/tuya.js#L2194 
     '_TZE200_zion52ef'  : 'TEST3',       // TRV MOES => fn = "0001 > off:  dp = "0204"  data = "02" // off; heat:  dp = "0204"  data = "01" // on; auto: n/a !; setHeatingSetpoint(preciseDegrees):   fn = "00" SP = preciseDegrees *10; dp = "1002"
     '_TZE200_c88teujp'  : 'TEST3',       // TRV "SEA-TR", "Saswell", model "SEA801" (to be tested)
@@ -183,6 +188,7 @@ def isBEOK()       { return device.getDataValue('manufacturer') in ['_TZE200_2ek
 def isMOES()       { return device.getDataValue('manufacturer') in ['_TZE200_aoclfnxz'] }
 def isBSEED()      { return isMOES() }
 def isTRV07()      { return device.getDataValue('manufacturer') in ['_TZE200_bvrlmajk'] }
+def isHY367()      { return device.getDataValue('manufacturer') in ['_TZE200_rufdtfyv'] }
 
 @Field static final Map brightnessOptions = [
     '0' : 'off',
@@ -319,6 +325,7 @@ def parse(String description) {
                         case 'TEST3' :
                             processBRT100Presets( dp, fncmd )
                             break
+                        case 'HY367' :  // dp1 not used 
                         case 'HY369' :  // dp1 not used 
                         default :
                             if (settings?.logEnable) {log.warn "${device.displayName} Thermostat model group ${getModelGroup()} is not processed! (dp=${dp}, fncmd=${fncmd})"}
@@ -371,6 +378,7 @@ def parse(String description) {
                             state.lastThermostatMode = mode 
                             break    // no more processing for BEOK!
                         case 'BRT-100' :    // BRT-100 Thermostat heatsetpoint # 0x0202 #
+                        case 'HY367' :
                         case 'HY369' :
                         case 'TRV07' :      // TODO - check TRV07 "Target temperature" !!!!!!!!!!!
                         case 'TEST3' :
@@ -397,6 +405,7 @@ def parse(String description) {
                         case 'BRT-100' :
                         case 'TEST3' :    // Thermostat current temperature
                         case "TRV07" :    // added 11/14/2023
+                        case 'HY367' :
                             logDebug "processTuyaTemperatureReport descMap?.size() = ${descMap?.data.size()} dp_id=${dp_id} <b>dp=${dp}</b> :"
                             processTuyaTemperatureReport( fncmd )
                             break
@@ -412,7 +421,7 @@ def parse(String description) {
                     break
                 case 0x04 :    // BRT-100 Boost    DP_IDENTIFIER_THERMOSTAT_BOOST    DP_IDENTIFIER_THERMOSTAT_BOOST 0x04 // Boost for Moes
                     processTuyaBoostModeReport( fncmd )
-                    // TODO 'HY369'  | 0x04       |           | Mode 0x01 Auto ,0x02 Off | |
+                    // TODO 'HY367'  'HY369'  | 0x04       |           | Mode 0x01 Auto ,0x02 Off | |
                     break
                 case 0x05 :    // BRT-100 ?
                     if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
@@ -437,8 +446,8 @@ def parse(String description) {
                         logInfo "sound is: ${fncmd==0?'off':'on'}"
                         device.updateSetting( "sound",  [value:(fncmd==0?false:true), type:"bool"] )
                     }
-                    else if (getModelGroup() == 'HY369') {
-                        logInfo "HY369 Child Lock (dp=${dp}) is: ${fncmd}"    //  [0] unlocked [1] locked
+                    else if (getModelGroup() in ['HY367', 'HY369']) {
+                        logInfo "HY367/9 Child Lock (dp=${dp}) is: ${fncmd}"    //  [0] unlocked [1] locked
                     }
                     else if (getModelGroup() in ['TRV07']) {     // Open Window function
                         logInfo "TRV07 Window Open status dp=${dp} fncmd=${fncmd}" //
@@ -480,6 +489,9 @@ def parse(String description) {
                         else {
                             logInfo "TRV07 bad value for a battery report dp=${dp} fncmd=${fncmd}" // ? fncmd=3281408 ?
                         }
+                    }
+                    else if (getModelGroup() in ['HY367']) {    
+                        logInfo "TRV07 Fault alarm dp=${dp} fncmd=${fncmd}"
                     }
                     else {     // BRT-100 Childlock status    DP_IDENTIFIER_THERMOSTAT_CHILDLOCK_4 0x0D MOES, LIDL, TRV07
                         logInfo "Child Lock (dp=${dp}) is: ${fncmd}"    // 0:function disabled / 1:function enabled
@@ -638,8 +650,8 @@ def parse(String description) {
                     // TODO - make it a preference parameter !
                     sendEvent(name: "sensorSelection", value: sensorOptions[fncmd.toString()])
                     break
-                case 0x2C :                                             // temperature calibration (offset in degree)   //DP_IDENTIFIER_THERMOSTAT_CALIBRATION_2 0x2C // Calibration offset used by others
-                    processTuyaCalibration( dp, fncmd )                 // including 'HY369'- temperature calibration (decidegree)
+                case 0x2C :    // (44)                                  // temperature calibration (offset in degree)   //DP_IDENTIFIER_THERMOSTAT_CALIBRATION_2 0x2C // Calibration offset used by others
+                    processTuyaCalibration( dp, fncmd )                 // including 'HY367' and 'HY369'- temperature calibration (decidegree)
                     break
                 case 0x2D :    // (45) LIDL and AVATTO ErrorStatus (bitmap) e1, e2, e3 // er1: Built-in sensor disconnected or fault with it; Er1: Built-in sensor disconnected or fault with it.; x5hFaultAlarm BEOK
                     if (settings?.txtEnable) log.info "${device.displayName} fault alarm error code is: ${fncmd}"
@@ -663,8 +675,8 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} BEOK 'temperature ceiling' is: ${fncmd} C (dp=${dp}, fncmd=${fncmd})"
                         device.updateSetting("tempCeiling", [value: fncmd as int , type:"number"])    // whole number
                     }
-                    else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 Min temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
+                    else if (getModelGroup in ['HY367','HY369']) {
+                        logInfo "HY367/9 Min temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
                         device.updateSetting("minTemp", [value: (fncmd/10) as int , type:"number"])
 
                     }
@@ -683,8 +695,8 @@ def parse(String description) {
                     else if (isBEOK()) {
                         if (settings?.txtEnable) log.info "${device.displayName} output reverse is ${fncmd==0?'off':'on'} (${fncmd})"
                     }
-                    else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 Max temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
+                    else if (getModelGroup in ['HY367','HY369']) {
+                        logInfo "HY367/9 Max temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
                         device.updateSetting("maxTemp", [value: (fncmd/10) as int , type:"number"])
                     }
                     else {
@@ -707,14 +719,13 @@ def parse(String description) {
                         state.lastRx   = mapToJsonString( lastRxMap)
                         sendEvent(name: "brightness", value: brightnessOptions[fncmd.toString()])
                     }
-                    else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 MOES_WINDOW_DETECT_ATTR (dp=${dp}) is: ${fncmd}" // [0,35,5] on/off, temperature, operating time (min)
+                    else if (getModelGroup in ['HY367','HY369']) {
+                        logInfo "HY367/9 MOES_WINDOW_DETECT_ATTR (dp=${dp}) is: ${fncmd}" // [0,35,5] on/off, temperature, operating time (min)
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
                         // # 0x0268 # TODO - send event! (works OK with BRT-100 (values of 25 / 50 / 75 / 100) 
                     }
-                    // TODO 'HY369'- unknown?
                     break
                 case 0x69 :     // (105) BRT-100 temp calibration // could be also Heatsetpoint for TRV_MOE mode auto ? also LIDL
                     if (getModelGroup() in ['BRT-100']) {
@@ -723,8 +734,8 @@ def parse(String description) {
                     else if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO unknown parameter (105) is: ${fncmd}"      // TODO: check AVATTO usage                                                 
                     }
-                    else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 BOOST mode operating time (dp=${dp}) is: ${fncmd} seconds"
+                    else if (getModelGroup in ['HY367','HY369']) {
+                        logInfo "HY367/9 BOOST mode operating time (dp=${dp}) is: ${fncmd} seconds"
                     }
                     else {
                          log.warn "${device.displayName} (DP=0x69) ?TRV_MOES auto mode Heatsetpoint? value is: ${fncmd}"
@@ -735,8 +746,8 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} Dead Zone temp (hysteresis) is: ${fncmd}C (dp=${dp}, fncmd=${fncmd})"
                         device.updateSetting("hysteresis", [value:fncmd, type:"decimal"])
                     }
-                    else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 MOES_FORCE_VALVE_ATTR (dp=${dp}) is: ${fncmd}"   // [0] normal [1] open [2] close
+                    else if (getModelGroup in ['HY367','HY369']) {
+                        logInfo "HY367/9 MOES_FORCE_VALVE_ATTR (dp=${dp}) is: ${fncmd}"   // [0] normal [1] open [2] close
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Energy saving mode? (dp=${dp}) is: ${fncmd} data = ${descMap?.data})"    // 0:function disabled / 1:function enabled
@@ -746,8 +757,8 @@ def parse(String description) {
                     if (getModelGroup() in ['AVATTO']) {
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO unknown parameter (105) is: ${fncmd}"      // TODO: check AVATTO usage                                                 
                     }
-                    else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 comfort mode temperaure (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})"   // (decidegree)
+                    else if (getModelGroup in ['HY367','HY369']) {
+                        logInfo "HY367/9 comfort mode temperaure (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})"   // (decidegree)
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6B) Energy saving mode temperature value is: ${fncmd}"    // for BRT-100 # 0x026b # Energy saving mode temperature ( Received value [0, 0, 0, 15] )
@@ -765,8 +776,8 @@ def parse(String description) {
                         logInfo "TRV07 Valve (108) is open: ${fncmd/10}%"
                         sendEvent(name: "valve", value: fncmd/10)                                              
                     }
-                    else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 eco mode temperature  (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})"   // (decidegree)
+                    else if (getModelGroup in ['HY367','HY369']) {
+                        logInfo "HY367/9 eco mode temperature  (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})"   // (decidegree)
                     }
                     else {
                         logInfo "(dp=108) unknown parameter value is: ${fncmd}"        // DP_IDENTIFIER_HUMIDITY 0x6C  (Sensors)
@@ -784,8 +795,8 @@ def parse(String description) {
                     else if (getModelGroup() in ['TRV07']) {
                         logInfo "TRV07 model (109) is: ${fncmd}"
                     }
-                    else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 opening percentage  (dp=${dp}) is: ${fncmd} %"
+                    else if (getModelGroup in ['HY367','HY369']) {
+                        logInfo "HY367/9 valve opening percentage  (dp=${dp}) is: ${fncmd} %"
                     }
                     else { // TODO 'HY369'- valveposition  TODO - event!                                              // Valve position in % (also // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_4 0x6D // Not finished)
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) valve position is: ${fncmd} (dp=${dp}, fncmd=${fncmd})"
@@ -797,13 +808,17 @@ def parse(String description) {
                         logInfo "TRV07 Motor thrust (110) is: ${fncmd}"
                     }   
                     else {
-                        logInfo "(Low) Battery warning (DP= 0x6E) is: ${fncmd}"
+                        logInfo "(Low) Battery warning (DP= 0x6E) is: ${fncmd}"     // or battery status? 'HY367','HY369',
+                        // TODO - send battery event 111
                     }
                     break
                 case 0x6F :      // (111) 
                     if (getModelGroup() in ['TRV07']) {
                         logInfo "TRV07 Display brightness (111) is: ${fncmd}"      // TODO: map to the preference
                     }   
+                    else if (getModelGroup in ['HY367']) {
+                        logInfo "HY367 AutoMode Type  (dp=${dp}) is: ${fncmd}"
+                    }  
                     else {
                         logInfo "HY369 Week format (dp=${dp}) is: ${fncmd}"     // [0] 5 days [1] 6 days, [2] 7 days
                     }
@@ -815,6 +830,9 @@ def parse(String description) {
                     else if (getModelGroup in ['HY369']) {
                         logInfo "HY369 thermostat schedule workdays (dp=${dp}) is: ${fncmd}"    // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_2 0x70 // work days (6)
                     }
+                    else if (getModelGroup in ['HY367']) {
+                        logInfo "HY367 Workday Set (dp=${dp}) is: ${fncmd}"
+                    }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} reporting status state : ${descMap?.data}"
                     }
@@ -824,7 +842,10 @@ def parse(String description) {
                         logInfo "TRV07 Screen orientation (113) is: ${fncmd}"
                     }   
                     else if (getModelGroup in ['HY369']) {
-                        logInfo "HY369 thermostat schedule weeked (dp=${dp}) is: ${fncmd}"  // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_3 0x71 // holiday = Not working day (6)
+                        logInfo "HY369 thermostat schedule weekend (dp=${dp}) is: ${fncmd}"  // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_3 0x71 // holiday = Not working day (6)
+                    }
+                    else if (getModelGroup in ['HY367']) {
+                        logInfo "HY367 Restday Set (dp=${dp}) is: ${fncmd}"
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} reporting status state : ${descMap?.data}"
@@ -834,14 +855,17 @@ def parse(String description) {
                     if (getModelGroup() in ['TRV07']) {
                         logInfo "TRV07 System mode (114) is: ${fncmd}"      // TODO: check TRV07 usage as 'Sstem mode'                                           
                     }   
-                    else {
-                        logInfo "HY369 away mode temperature (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
+                    else {      // HY367 Holiday  Temperature
+                        logInfo "HY367/9 away mode (holiday) temperature (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
                     }
                     break
                 case 0x73 :      // (115)   
                     if (getModelGroup() in ['TRV07']) {
                         logInfo "TRV07 Switch deviation (energy-saving mode only) (115) is: ${fncmd}"
                     }   
+                    else if (getModelGroup in ['HY367']) {
+                        logInfo "HY367 Window Status (dp=${dp}) is: ${fncmd}"
+                    }
                     else {
                         logInfo "unknown parameter (115) is: ${fncmd}"
                     }
@@ -851,11 +875,24 @@ def parse(String description) {
                         logInfo "TRV07 Motor Data (116) is: ${fncmd}"
                     }   
                     else {
-                        logInfo "HY369 auto lock (dp=${dp}) is: ${fncmd}"   // [0] auto [1] manual
+                        logInfo "HY367/9 auto lock/ keylock (dp=${dp}) is: ${fncmd}"   // [0] auto [1] manual
                     }
                     break
-                case 0x75 :      // (117)   // LIDL OpenwindowTemp
-                    logInfo "HY369 away mode duration (dp=${dp}) is: ${fncmd} days"
+                case 0x75 :      // (117)
+                    if (getModelGroup in ['HY367']) {
+                        logInfo "HY367 Holiday Days (dp=${dp}) is: ${fncmd}"
+                    }
+                    else {
+                        logInfo "HY369 away mode duration (dp=${dp}) is: ${fncmd} days"
+                    }
+                    break
+                case 0x76 :      // (118)
+                    if (getModelGroup in ['HY367']) {
+                        logInfo "HY367 Valve openning (dp=${dp}) is: ${fncmd}"
+                    }
+                    else {
+                        logInfo "unknown parameter (dp=${dp}) is: ${fncmd}"
+                    }
                     break
                 default :
                     if (settings?.logEnable) log.warn "${device.displayName} NOT PROCESSED Tuya cmd: dp=${dp} value=${fncmd} descMap.data = ${descMap?.data}" 
@@ -915,7 +952,7 @@ def processTuyaHeatSetpointReport( fncmd )
     if (getModelGroup() in ['AVATTO', 'MOES', 'BRT-100' ]) {
         setpointValue = fncmd as int
     }
-    else if (getModelGroup() in ['BEOK', 'HY369', 'TRV07','TEST3']) {   // added HYS369 10/29/2023 -  current room temp (decidegree)
+    else if (getModelGroup() in ['BEOK', 'HY367', 'HY369', 'TRV07','TEST3']) {   // added HYS369 10/29/2023 -  current room temp (decidegree)
             setpointValue = fncmd / 10.0
     }
     else {
@@ -944,6 +981,7 @@ def processTuyaTemperatureReport( fncmd )
             currentTemperatureValue = fncmd / 10.0     
             break
         case 'BRT-100' :
+        case 'HY367' :
         case 'HY369' :
         case 'TEST3' :
         case 'TRV07' :   // added TRV07 11/14/2023 -  current room temp (decidegree)
@@ -980,9 +1018,9 @@ def processTuyaCalibration( dp, fncmd )
         device.updateSetting("tempCalibration", [value: temp , type:"decimal"])
         logDebug "BRT-100 calibration is: ${temp}"
     }
-    else  if (getModelGroup() in ['HY369'] ) { // 0x2C
+    else  if (getModelGroup() in ['HY367','HY369'] ) { // 0x2C
         device.updateSetting("tempCalibration", [value: temp / 10.0 , type:"decimal"])
-        logDebug "HY369 (dp=0x2C) calibration is: ${temp/10.0}"
+        logDebug "HY367/9 (dp=0x2C) calibration is: ${temp/10.0}"
     }
     else {
         if (settings?.logEnable) log.warn "${device.displayName} UNSUPPORTED temperature calibration for modelGroup=${getModelGroup()} : ${temp} (dp=${dp}, fncmd=${fncmd}) "
@@ -1062,7 +1100,7 @@ Holiday -> [3] for attribute 0x0401
 def processTuyaModes3( dp, data ) {
     // dp = 0x0402 : // preset for moes or mode
     // dp = 0x0403 : // preset for moes    
-    if (getModelGroup() in ['BRT-100', 'HY369']) {    // BRT-100 ?    KK: TODO!
+    if (getModelGroup() in ['BRT-100', 'HY367', 'HY369']) {    // BRT-100 ?    KK: TODO!
         def mode
         if (data == 0) { mode = "auto" } //schedule
         else if (data == 1) { mode = "heat" } //manual
@@ -1306,6 +1344,7 @@ def sendTuyaHeatingSetpoint( temperature ) {
             dp = "02"                            
             settemp = temperature * 10
             break
+        case 'HY367' :
         case 'HY369' :
             dp = "02"
             settemp = temperature * 10      // 10/29/2023 
@@ -2043,7 +2082,7 @@ def childLock( mode ) {
     def dp
     if (getModelGroup() in ["AVATTO", "BEOK"]) {dp = "28"}
     else if (getModelGroup() in ["BRT-100"]) {dp = "0D"}
-    else if (getModelGroup() in ["HY369"]) {dp = "07"}
+    else if (getModelGroup() in ["HY367","HY369"]) {dp = "07"}
     else if (getModelGroup() in ["TRV07"]) {dp = "0C"}
     else {
         if (settings?.txtEnable) log.warn "${device.displayName} child lock mode: ${mode} is not supported for modelGroup${getModelGroup()}"
