@@ -446,8 +446,10 @@ def parse(String description) {
                         logInfo "sound is: ${fncmd==0?'off':'on'}"
                         device.updateSetting( "sound",  [value:(fncmd==0?false:true), type:"bool"] )
                     }
-                    else if (getModelGroup() in ['HY367', 'HY369']) {
+                    else if (getModelGroup() in ['HY367', 'HY369']) { // Child Lock status
                         logInfo "HY367/9 Child Lock (dp=${dp}) is: ${fncmd}"    //  [0] unlocked [1] locked
+                        sendEvent(name: "childLock", value: (fncmd == 0) ? "off" : "on" )
+                    break
                     }
                     else if (getModelGroup() in ['TRV07']) {     // Open Window function
                         logInfo "TRV07 Window Open status dp=${dp} fncmd=${fncmd}" //
