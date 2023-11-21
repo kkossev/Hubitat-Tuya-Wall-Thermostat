@@ -426,9 +426,9 @@ def parse(String description) {
                                 processTuyaBoostModeReport( fncmd )
                                 break
                             case 'HY367' :      // Thermostat Mode
-                                logDebug "${device.displayName} mode is ${fncmd} (<b>dp=${dp}</b> fncmd=${fncmd})"
                                 def thermostatModes = ["holiday", "auto", "heating", "comfort", "eco", "BOOST", "temp_auto", "valve"] // using "heating" for consistency, 01 is defined as manual in documentation
                                 def thermostatMode = thermostatModes[fncmd]
+                                logDebug "${device.displayName} mode is <b>${thermostatMode}</b> (<b>dp=${dp}</b> fncmd=${fncmd})"
                                 sendEvent(name: "thermostatMode", value: thermostatMode)
                                 break
                             default :
