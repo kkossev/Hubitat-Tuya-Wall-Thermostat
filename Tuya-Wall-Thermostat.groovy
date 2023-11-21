@@ -405,7 +405,7 @@ def parse(String description) {
                         case 'BRT-100' :
                         case 'TEST3' :    // Thermostat current temperature
                         case "TRV07" :    // added 11/14/2023
-                        case 'HY367' :
+                        case 'HY367' :    // Thermostat Current temperature
                             logDebug "processTuyaTemperatureReport descMap?.size() = ${descMap?.data.size()} dp_id=${dp_id} <b>dp=${dp}</b> :"
                             processTuyaTemperatureReport( fncmd )
                             break
