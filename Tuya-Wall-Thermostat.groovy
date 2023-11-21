@@ -43,7 +43,7 @@
  * ver. 1.3.2  2023-11-16 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk Avatto TRV07 ; added Immax Neo Lite TRV 07732L TS0601 _TZE200_rufdtfyv as HY367; 
  * ver. 1.3.3  2023-11-16 vnistor  - (dev. branch) - added modes, valve, childLock, windowOpen, windowOpenDetection, thermostatOperatingState to TS0601 _TZE200_bvrlmajk Avatto TRV07 
  * ver. 1.3.4  2023-11-16 kkossev  - (dev. branch) - merged versions 1.3.2 and 1.3.3; 
- * ver. 1.3.5  2023-11-16 vnistor  - (dev. branch) - added childLock status, valve status to HY367; 
+ * ver. 1.3.5  2023-11-16 vnistor  - (dev. branch) - added childLock status, valve status, battery warning to HY367; 
  *
  *                                  TODO: 
  *                                  TODO: parse multiple Tuya DPs in one message;
@@ -60,7 +60,7 @@
 */
 
 def version() { "1.3.5" }
-def timeStamp() {"2023/11/16 16:10 PM"}
+def timeStamp() {"2023/11/16 16:55 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -810,7 +810,16 @@ def parse(String description) {
                 case 0x6E :       // (110) Low battery    DP_IDENTIFIER_BATTERY 0x6E    // including 'HY369' lowbattery 
                     if (getModelGroup() in ['TRV07']) {
                         logInfo "TRV07 Motor thrust (110) is: ${fncmd}"
-                    }   
+                    }
+                    else if (getModelGroup() in ['HY367']) { // Low Battery warning
+                        def battery = fncmd < 1 ? 100 : fncmd // battery is 100% if no warning
+                        if (battery == 100) { // log battery as charged if the fncmd is 0
+                            if (settings?.txtEnable) log.info "${device.displayName} battery is: <b>charged</b> (dp=${dp}, fncmd=${fncmd})"
+                        } else { // log the warning that battery is low
+                            logWarn "${device.displayName} battery is: <b>LOW</b> (dp=${dp}, fncmd=${fncmd})"
+                        }
+                        getBatteryPercentageResult(battery*2)
+                    }
                     else {
                         logInfo "(Low) Battery warning (DP= 0x6E) is: ${fncmd}"     // or battery status? 'HY367','HY369',
                         // TODO - send battery event 111
