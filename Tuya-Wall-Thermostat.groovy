@@ -60,7 +60,7 @@
 */
 
 def version() { "1.3.5" }
-def timeStamp() {"2023/11/16 16:55 PM"}
+def timeStamp() {"2023/11/16 17:00 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -448,7 +448,7 @@ def parse(String description) {
                         device.updateSetting( "sound",  [value:(fncmd==0?false:true), type:"bool"] )
                     }
                     else if (getModelGroup() in ['HY367', 'HY369']) { // Child Lock status
-                        logInfo "HY367/9 Child Lock (dp=${dp}) is: ${fncmd}"    //  [0] unlocked [1] locked
+                        logInfo "HY367/HY369 Child Lock (dp=${dp}) is: ${fncmd}"    //  [0] unlocked [1] locked
                         sendEvent(name: "childLock", value: (fncmd == 0) ? "off" : "on" )
                     break
                     }
@@ -679,7 +679,7 @@ def parse(String description) {
                         device.updateSetting("tempCeiling", [value: fncmd as int , type:"number"])    // whole number
                     }
                     else if (getModelGroup in ['HY367','HY369']) {
-                        logInfo "HY367/9 Min temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
+                        logInfo "HY367/HY369 Min temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
                         device.updateSetting("minTemp", [value: (fncmd/10) as int , type:"number"])
 
                     }
@@ -699,7 +699,7 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} output reverse is ${fncmd==0?'off':'on'} (${fncmd})"
                     }
                     else if (getModelGroup in ['HY367','HY369']) {
-                        logInfo "HY367/9 Max temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
+                        logInfo "HY367/HY369 Max temperature limit (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
                         device.updateSetting("maxTemp", [value: (fncmd/10) as int , type:"number"])
                     }
                     else {
@@ -723,7 +723,7 @@ def parse(String description) {
                         sendEvent(name: "brightness", value: brightnessOptions[fncmd.toString()])
                     }
                     else if (getModelGroup in ['HY367','HY369']) {
-                        logInfo "HY367/9 MOES_WINDOW_DETECT_ATTR (dp=${dp}) is: ${fncmd}" // [0,35,5] on/off, temperature, operating time (min)
+                        logInfo "HY367/HY369 MOES_WINDOW_DETECT_ATTR (dp=${dp}) is: ${fncmd}" // [0,35,5] on/off, temperature, operating time (min)
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Valve position is: ${fncmd}% (dp=${dp}, fncmd=${fncmd})"
@@ -738,7 +738,7 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO unknown parameter (105) is: ${fncmd}"      // TODO: check AVATTO usage                                                 
                     }
                     else if (getModelGroup in ['HY367','HY369']) {
-                        logInfo "HY367/9 BOOST mode operating time (dp=${dp}) is: ${fncmd} seconds"
+                        logInfo "HY367/HY369 BOOST mode operating time (dp=${dp}) is: ${fncmd} seconds"
                     }
                     else {
                          log.warn "${device.displayName} (DP=0x69) ?TRV_MOES auto mode Heatsetpoint? value is: ${fncmd}"
@@ -750,7 +750,7 @@ def parse(String description) {
                         device.updateSetting("hysteresis", [value:fncmd, type:"decimal"])
                     }
                     else if (getModelGroup in ['HY367','HY369']) {
-                        logInfo "HY367/9 MOES_FORCE_VALVE_ATTR (dp=${dp}) is: ${fncmd}"   // [0] normal [1] open [2] close
+                        logInfo "HY367/HY369 MOES_FORCE_VALVE_ATTR (dp=${dp}) is: ${fncmd}"   // [0] normal [1] open [2] close
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} Energy saving mode? (dp=${dp}) is: ${fncmd} data = ${descMap?.data})"    // 0:function disabled / 1:function enabled
@@ -761,7 +761,7 @@ def parse(String description) {
                         if (settings?.txtEnable) log.info "${device.displayName} AVATTO unknown parameter (105) is: ${fncmd}"      // TODO: check AVATTO usage                                                 
                     }
                     else if (getModelGroup in ['HY367','HY369']) {
-                        logInfo "HY367/9 comfort mode temperaure (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})"   // (decidegree)
+                        logInfo "HY367/HY369 comfort mode temperaure (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})"   // (decidegree)
                     }
                     else {
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6B) Energy saving mode temperature value is: ${fncmd}"    // for BRT-100 # 0x026b # Energy saving mode temperature ( Received value [0, 0, 0, 15] )
@@ -780,7 +780,7 @@ def parse(String description) {
                         sendEvent(name: "valve", value: fncmd/10)                                              
                     }
                     else if (getModelGroup in ['HY367','HY369']) {
-                        logInfo "HY367/9 eco mode temperature  (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})"   // (decidegree)
+                        logInfo "HY367/HY369 eco mode temperature  (dp=${dp}) is: ${fncmd/10.0} (raw:${fncmd})"   // (decidegree)
                     }
                     else {
                         logInfo "(dp=108) unknown parameter value is: ${fncmd}"        // DP_IDENTIFIER_HUMIDITY 0x6C  (Sensors)
@@ -799,7 +799,7 @@ def parse(String description) {
                         logInfo "TRV07 model (109) is: ${fncmd}"
                     }
                     else if (getModelGroup() in ['HY367', 'HY369']) { // Valve % open report
-                        logInfo "HY367/9 valve opening percentage  (dp=${dp}) is: ${fncmd} %"
+                        logInfo "HY367/HY369 valve opening percentage  (dp=${dp}) is: ${fncmd} %"
                         sendEvent(name: "valve", value: fncmd)  
                     }
                     else { // TODO 'HY369'- valveposition  TODO - event!                                              // Valve position in % (also // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_4 0x6D // Not finished)
@@ -869,7 +869,7 @@ def parse(String description) {
                         logInfo "TRV07 System mode (114) is: ${fncmd}"      // TODO: check TRV07 usage as 'Sstem mode'                                           
                     }   
                     else {      // HY367 Holiday  Temperature
-                        logInfo "HY367/9 away mode (holiday) temperature (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
+                        logInfo "HY367/HY369 away mode (holiday) temperature (dp=${dp}) is: ${fncmd/10.0} (raw=${fncmd})"
                     }
                     break
                 case 0x73 :      // (115)   
@@ -888,7 +888,7 @@ def parse(String description) {
                         logInfo "TRV07 Motor Data (116) is: ${fncmd}"
                     }   
                     else {
-                        logInfo "HY367/9 auto lock/ keylock (dp=${dp}) is: ${fncmd}"   // [0] auto [1] manual
+                        logInfo "HY367/HY369 auto lock/ keylock (dp=${dp}) is: ${fncmd}"   // [0] auto [1] manual
                     }
                     break
                 case 0x75 :      // (117)
@@ -899,8 +899,8 @@ def parse(String description) {
                         logInfo "HY369 away mode duration (dp=${dp}) is: ${fncmd} days"
                     }
                     break
-                case 0x76 :      // (118)
-                    if (getModelGroup in ['HY367']) {
+                case 0x76 :      // (118) 
+                    if (getModelGroup() in ['HY367']) { // Not quite sure what this does, as it does not appear to change when valve opens (handled by dp 109)
                         logInfo "HY367 Valve openning (dp=${dp}) is: ${fncmd}"
                     }
                     else {
@@ -1033,7 +1033,7 @@ def processTuyaCalibration( dp, fncmd )
     }
     else  if (getModelGroup() in ['HY367','HY369'] ) { // 0x2C
         device.updateSetting("tempCalibration", [value: temp / 10.0 , type:"decimal"])
-        logDebug "HY367/9 (dp=0x2C) calibration is: ${temp/10.0}"
+        logDebug "HY367/HY369 (dp=0x2C) calibration is: ${temp/10.0}"
     }
     else {
         if (settings?.logEnable) log.warn "${device.displayName} UNSUPPORTED temperature calibration for modelGroup=${getModelGroup()} : ${temp} (dp=${dp}, fncmd=${fncmd}) "
