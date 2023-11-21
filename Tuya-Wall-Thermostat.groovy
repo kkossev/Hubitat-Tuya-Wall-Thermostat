@@ -43,7 +43,7 @@
  * ver. 1.3.2  2023-11-16 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk Avatto TRV07 ; added Immax Neo Lite TRV 07732L TS0601 _TZE200_rufdtfyv as HY367; 
  * ver. 1.3.3  2023-11-16 vnistor  - (dev. branch) - added modes, valve, childLock, windowOpen, windowOpenDetection, thermostatOperatingState to TS0601 _TZE200_bvrlmajk Avatto TRV07 
  * ver. 1.3.4  2023-11-16 kkossev  - (dev. branch) - merged versions 1.3.2 and 1.3.3; 
- * ver. 1.3.5  2023-11-16 vnistor  - (dev. branch) - added childLock status, valve status, battery warning to HY367; 
+ * ver. 1.3.5  2023-11-16 vnistor  - (dev. branch) - added childLock status, valve status, battery warning, thermostatMode to HY367; 
  *
  *                                  TODO: 
  *                                  TODO: parse multiple Tuya DPs in one message;
@@ -60,7 +60,7 @@
 */
 
 def version() { "1.3.5" }
-def timeStamp() {"2023/11/16 17:00 PM"}
+def timeStamp() {"2023/11/16 17:35 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -420,10 +420,23 @@ def parse(String description) {
                             break
                     }
                     break
-                case 0x04 :    // BRT-100 Boost    DP_IDENTIFIER_THERMOSTAT_BOOST    DP_IDENTIFIER_THERMOSTAT_BOOST 0x04 // Boost for Moes
-                    processTuyaBoostModeReport( fncmd )
-                    // TODO 'HY367'  'HY369'  | 0x04       |           | Mode 0x01 Auto ,0x02 Off | |
-                    break
+                        case 0x04 :   
+                        switch (getModelGroup()) {
+                            case 'BRT-100' :    // BRT-100 Boost    DP_IDENTIFIER_THERMOSTAT_BOOST    DP_IDENTIFIER_THERMOSTAT_BOOST 0x04 // Boost for Moes
+                                processTuyaBoostModeReport( fncmd )
+                                break
+                            case 'HY367' :      // Thermostat Mode
+                                logDebug "${device.displayName} mode is ${fncmd} (<b>dp=${dp}</b> fncmd=${fncmd})"
+                                def thermostatModes = ["holiday", "auto", "heating", "comfort", "eco", "BOOST", "temp_auto", "valve"] // using "heating" for consistency, 01 is defined as manual in documentation
+                                def thermostatMode = thermostatModes[fncmd]
+                                sendEvent(name: "thermostatMode", value: thermostatMode)
+                                break
+                            default :
+                                if (settings?.logEnable) {log.warn "${device.displayName} Thermostat model group ${getModelGroup()} is not processed! (dp=${dp}, fncmd=${fncmd})"}
+                                break
+                        }
+                        // TODO 'HY369'  | 0x04       |           | Mode 0x01 Auto ,0x02 Off | |
+                        break
                 case 0x05 :    // BRT-100 ?
                     if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
                     break
