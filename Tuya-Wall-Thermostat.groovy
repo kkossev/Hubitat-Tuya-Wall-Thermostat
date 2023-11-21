@@ -43,6 +43,7 @@
  * ver. 1.3.2  2023-11-16 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk Avatto TRV07 ; added Immax Neo Lite TRV 07732L TS0601 _TZE200_rufdtfyv as HY367; 
  * ver. 1.3.3  2023-11-16 vnistor  - (dev. branch) - added modes, valve, childLock, windowOpen, windowOpenDetection, thermostatOperatingState to TS0601 _TZE200_bvrlmajk Avatto TRV07 
  * ver. 1.3.4  2023-11-16 kkossev  - (dev. branch) - merged versions 1.3.2 and 1.3.3; 
+ * ver. 1.3.5  2023-11-16 vnistor  - (dev. branch) - added childLock status, valve status to HY367; 
  *
  *                                  TODO: 
  *                                  TODO: parse multiple Tuya DPs in one message;
@@ -58,8 +59,8 @@
  *
 */
 
-def version() { "1.3.4" }
-def timeStamp() {"2023/11/16 8:00 AM"}
+def version() { "1.3.5" }
+def timeStamp() {"2023/11/16 16:10 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -797,8 +798,9 @@ def parse(String description) {
                     else if (getModelGroup() in ['TRV07']) {
                         logInfo "TRV07 model (109) is: ${fncmd}"
                     }
-                    else if (getModelGroup in ['HY367','HY369']) {
+                    else if (getModelGroup() in ['HY367', 'HY369']) { // Valve % open report
                         logInfo "HY367/9 valve opening percentage  (dp=${dp}) is: ${fncmd} %"
+                        sendEvent(name: "valve", value: fncmd)  
                     }
                     else { // TODO 'HY369'- valveposition  TODO - event!                                              // Valve position in % (also // DP_IDENTIFIER_THERMOSTAT_SCHEDULE_4 0x6D // Not finished)
                         if (settings?.txtEnable) log.info "${device.displayName} (DP=0x6D) valve position is: ${fncmd} (dp=${dp}, fncmd=${fncmd})"
