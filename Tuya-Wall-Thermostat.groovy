@@ -43,7 +43,7 @@
  * ver. 1.3.2  2023-11-16 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk Avatto TRV07 ; added Immax Neo Lite TRV 07732L TS0601 _TZE200_rufdtfyv as HY367; 
  * ver. 1.3.3  2023-11-16 vnistor  - (dev. branch) - added modes, valve, childLock, windowOpen, windowOpenDetection, thermostatOperatingState to TS0601 _TZE200_bvrlmajk Avatto TRV07 
  * ver. 1.3.4  2023-11-16 kkossev  - (dev. branch) - merged versions 1.3.2 and 1.3.3; 
- * ver. 1.3.5  2023-11-16 vnistor  - (dev. branch) - added childLock status, valve status, battery warning, thermostatMode to HY367; 
+ * ver. 1.3.5  2023-11-16 vnistor  - (dev. branch) - added childLock status, valve status, battery warning, thermostatMode, setHeatingSetpoint to HY367; 
  *
  *                                  TODO: 
  *                                  TODO: parse multiple Tuya DPs in one message;
@@ -60,7 +60,7 @@
 */
 
 def version() { "1.3.5" }
-def timeStamp() {"2023/11/16 17:35 PM"}
+def timeStamp() {"2023/11/16 18:22 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -1371,6 +1371,9 @@ def sendTuyaHeatingSetpoint( temperature ) {
             settemp = temperature * 10
             break
         case 'HY367' :
+            dp = "02"
+            settemp = temperature * 10
+            break
         case 'HY369' :
             dp = "02"
             settemp = temperature * 10      // 10/29/2023 
@@ -1407,7 +1410,7 @@ def setHeatingSetpoint( temperature ) {
     def previousSetpoint = device.currentState('heatingSetpoint', true).value /*as int*/
     double tempDouble
     logDebug "setHeatingSetpoint temperature = ${temperature}  as int = ${temperature as int} (previousSetpointt = ${previousSetpoint})"
-    if (isBEOK() || isTRV07()) {
+    if (isBEOK() || isTRV07() || isHY367()) {
         if (settings?.logEnable) log.debug "0.5 C correction of the heating setpoint${temperature} for BEOK"
         tempDouble = safeToDouble(temperature)
         tempDouble = Math.round(tempDouble * 2) / 2.0
