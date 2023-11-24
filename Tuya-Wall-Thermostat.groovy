@@ -43,7 +43,8 @@
  * ver. 1.3.2  2023-11-16 kkossev  - (dev. branch) - added TS0601 _TZE200_bvrlmajk Avatto TRV07 ; added Immax Neo Lite TRV 07732L TS0601 _TZE200_rufdtfyv as HY367; 
  * ver. 1.3.3  2023-11-16 vnistor  - (dev. branch) - added modes, valve, childLock, windowOpen, windowOpenDetection, thermostatOperatingState to TS0601 _TZE200_bvrlmajk Avatto TRV07 
  * ver. 1.3.4  2023-11-16 kkossev  - (dev. branch) - merged versions 1.3.2 and 1.3.3; 
- * ver. 1.3.5  2023-11-16 vnistor  - (dev. branch) - added childLock status, valve status, battery warning, thermostatMode, setHeatingSetpoint, Valve capability, Preferences: tempCalibration, minTemp, maxTemp to HY367; 
+ * ver. 1.3.5  2023-11-23 vnistor  - (dev. branch) - added childLock status, valve status, battery warning, thermostatMode, setHeatingSetpoint, Valve capability, Preferences: tempCalibration, minTemp, maxTemp to HY367; 
+ * ver. 1.3.6  2023-11-24 kkossev  - The newly added events are declared as custom attributes;
  *
  *                                  TODO: 
  *                                  TODO: parse multiple Tuya DPs in one message;
@@ -59,8 +60,8 @@
  *
 */
 
-def version() { "1.3.5" }
-def timeStamp() {"2023/11/23 17:25 PM"}
+def version() { "1.3.6" }
+def timeStamp() {"2023/11/24 7:43 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -87,7 +88,6 @@ metadata {
         capability "ThermostatMode"
         capability "Battery"
         capability "HealthCheck"
-        capability "Valve"
         
         attribute "childLock", "enum", ["off", "on"]
         attribute "windowOpenDetection", "enum", ["off", "on"]
@@ -95,6 +95,11 @@ metadata {
         attribute "healthStatus", "enum", ["offline", "online", "unknown"]
         attribute "sensorSelection", "enum", sensorOptions.values() as List<String>
         attribute "rtt", "number" 
+        attribute "valve", "number" 
+        attribute "windowOpen", "enum", ["false", "true"]
+        attribute "minHeatingSetpoint", "number" 
+        attribute "maxHeatingSetpoint", "number" 
+        attribute "holidayModeSetpoint", "number" 
         
         if (_DEBUG == true) {
             command "zTest", [
@@ -139,7 +144,7 @@ metadata {
             input (name: "txtEnable", type: "bool", title: "<b>Description text logging</b>", description: "<i>Display measured values in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
             input (name: "forceManual", type: "bool", title: "<b>Force Manual Mode</b>", description: "<i>If the thermostat changes into schedule mode, then it automatically reverts back to manual mode</i>", defaultValue: false)
             input (name: "resendFailed", type: "bool", title: "<b>Resend failed commands</b>", description: "<i>If the thermostat does not change the Setpoint or Mode as expected, then commands will be resent automatically</i>", defaultValue: false)
-            input (name: "minTemp", type: "number", title: "<b>Minimum Temperature</b>", description: "<i>The Minimum temperature setpoint that can be sent to the device</i>", defaultValue: 10, range: "0..60")
+            input (name: "minTemp", type: "number", title: "<b>Minimum Temperature</b>", description: "<i>The Minimum temperature setpoint that can be sent to the device</i>", defaultValue: 5, range: "0..60")
             input (name: "maxTemp", type: "number", title: "<b>Maximum Temperature</b>", description: "<i>The Maximum temperature setpoint that can be sent to the device</i>", defaultValue: 35, range: "15..95")
             input (name: "modelGroupPreference", title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: "enum", options:["Auto detect":"Auto detect", "AVATTO":"AVATTO", "MOES":"MOES", "BEOK":"BEOK", "BRT-100":"BRT-100", "HY367":"HY367", "HY369":"HY369", "TRV07":"TRV07"], defaultValue: "Auto detect", required: false)        
             input (name: "tempCalibration", type: "decimal", title: "<b>Temperature Calibration</b>", description: "<i>Adjust measured temperature range: -9..9 C</i>", defaultValue: 0.0, range: "-9.0..9.0")
@@ -1482,7 +1487,7 @@ def setHeatingSetpoint( temperature ) {
     def previousSetpoint = device.currentState('heatingSetpoint', true).value /*as int*/
     double tempDouble
     logDebug "setHeatingSetpoint temperature = ${temperature}  as int = ${temperature as int} (previousSetpointt = ${previousSetpoint})"
-    if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", [value: 10 , type:"number"]);  device.updateSetting("maxTemp", [value: 35 , type:"number"])   } // default is 10, so we should set 10 for consistency
+    if (settings?.maxTemp == null || settings?.minTemp == null ) { device.updateSetting("minTemp", [value: 5 , type:"number"]);  device.updateSetting("maxTemp", [value: 35 , type:"number"])   } // default is 10, so we should set 10 for consistency
 
     if (isBEOK() || isTRV07() || isHY367()) {
         if (settings?.logEnable) log.debug "0.5 C correction of the heating setpoint${temperature} for BEOK"
@@ -2002,7 +2007,7 @@ void initializeVars( boolean fullInit = true ) {
     if (fullInit == true || settings?.txtEnable == null) device.updateSetting("txtEnable", true)
     if (fullInit == true || settings?.forceManual == null) device.updateSetting("forceManual", false)    
     if (fullInit == true || settings?.resendFailed == null) device.updateSetting("resendFailed", false)    
-    if (fullInit == true || settings?.minTemp == null) device.updateSetting("minTemp", [value: 10 , type:"number"])    
+    if (fullInit == true || settings?.minTemp == null) device.updateSetting("minTemp", [value: 5 , type:"number"])    
     if (fullInit == true || settings?.maxTemp == null) device.updateSetting("maxTemp", [value: 35 , type:"number"])
     if (fullInit == true || settings?.tempCeiling == null) device.updateSetting("tempCeiling", [value: 35 , type:"number"])
     if (fullInit == true || settings?.tempCalibration == null) device.updateSetting("tempCalibration", [value:0.0, type:"decimal"])
@@ -2031,7 +2036,7 @@ def initialize() {
 }
 
 def setDeviceLimits() { // for google and amazon compatability
-    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 10, unit: "°C", isStateChange: true)
+    sendEvent(name:"minHeatingSetpoint", value: settings.minTemp ?: 5, unit: "°C", isStateChange: true)
     sendEvent(name:"maxHeatingSetpoint", value: settings.maxTemp ?: 35, unit: "°C", isStateChange: true)
     updateDataValue("lastRunningMode", "heat")
     if (settings?.logEnable) log.trace "setDeviceLimits - device max/min set"
