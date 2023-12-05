@@ -44,7 +44,8 @@
  * ver. 1.3.3  2023-11-16 vnistor  - (dev. branch) - added modes, valve, childLock, windowOpen, windowOpenDetection, thermostatOperatingState to TS0601 _TZE200_bvrlmajk Avatto TRV07 
  * ver. 1.3.4  2023-11-16 kkossev  - (dev. branch) - merged versions 1.3.2 and 1.3.3; 
  * ver. 1.3.5  2023-11-23 vnistor  - (dev. branch) - added childLock status, valve status, battery warning, thermostatMode, setHeatingSetpoint, Valve capability, Preferences: tempCalibration, minTemp, maxTemp to HY367; 
- * ver. 1.3.6  2023-11-24 kkossev  - The newly added events are declared as custom attributes;
+ * ver. 1.3.6  2023-11-24 kkossev  - (dev. branch) - The newly added events are declared as custom attributes;
+ * ver. 1.3.7  2023-12-05 kkossev  - (dev. branch) - setting the hysteresis bug fix for AVATTO.
  *
  *                                  TODO: 
  *                                  TODO: parse multiple Tuya DPs in one message;
@@ -60,8 +61,8 @@
  *
 */
 
-def version() { "1.3.6" }
-def timeStamp() {"2023/11/24 7:43 AM"}
+def version() { "1.3.7" }
+def timeStamp() {"2023/12/05 7:52 PM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -1692,7 +1693,7 @@ def updated() {
     // hysteresis
     dp = getModelGroup() in ['AVATTO'] ? "6A" : getModelGroup() in ['BEOK'] ? "65" : null
     if (getModelGroup() in ['AVATTO', 'BEOK']) {
-        fncmd = getModelGroup() in [ 'BEOK'] ? (safeToDouble( hysteresis )*10) as int : safeToInt( hysteresis ) 
+        fncmd = getModelGroup() in ['BEOK'] ? (safeToDouble( hysteresis )*10) as int : safeToDouble( hysteresis ) 
         logDebug "setting hysteresis to ${hysteresis} (${fncmd})"
         cmds += sendTuyaCommand(dp, DP_TYPE_VALUE, zigbee.convertToHexString(fncmd as int, 8))
     }
