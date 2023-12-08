@@ -46,6 +46,7 @@
  * ver. 1.3.5  2023-11-23 vnistor  - (dev. branch) - added childLock status, valve status, battery warning, thermostatMode, setHeatingSetpoint, Valve capability, Preferences: tempCalibration, minTemp, maxTemp to HY367; 
  * ver. 1.3.6  2023-11-24 kkossev  - (dev. branch) - The newly added events are declared as custom attributes;
  * ver. 1.3.7  2023-12-05 kkossev  - (dev. branch) - setting the hysteresis bug fix for AVATTO.
+ * ver. 1.3.8  2023-12-08 kkossev  - (dev. branch) - thermostatOperatingState bug fix for BRT-100.
  *
  *                                  TODO: 
  *                                  TODO: parse multiple Tuya DPs in one message;
@@ -61,8 +62,8 @@
  *
 */
 
-def version() { "1.3.7" }
-def timeStamp() {"2023/12/05 7:52 PM"}
+def version() { "1.3.8" }
+def timeStamp() {"2023/12/08 9:43 AM"}
 
 import groovy.json.*
 import groovy.transform.Field
@@ -326,7 +327,7 @@ def parse(String description) {
                         case 'BRT-100' :    // 0x0401 # Mode (Received value 0:Manual / 1:Holiday / 2:Temporary Manual Mode / 3:Prog)
                         case 'TRV07' :      // 
                             logDebug "${device.displayName} mode is ${fncmd} (<b>dp=${dp}</b> fncmd=${fncmd})"
-                            def thermostatModes = ["auto", "heating", "off", "on"] // using "heating" for consistency, 01 is defined as manual in documentation
+                            def thermostatModes = ["auto", "heat", "off", "on"] // the themostatMode attribute value must be "heat" instead of "heating"
                             def thermostatMode = thermostatModes[fncmd]
                             sendEvent(name: "thermostatMode", value: thermostatMode)
                             break
@@ -435,7 +436,7 @@ def parse(String description) {
                                 processTuyaBoostModeReport( fncmd )
                                 break
                             case 'HY367' :      // Thermostat Mode
-                                def thermostatModes = ["holiday", "auto", "heating", "comfort", "eco", "emergency heat", "temp_auto", "valve"] // using "heating" and "emergency heat" for consistency, 01 is defined as manual in documentation 05 is defined as Boost in documentation
+                                def thermostatModes = ["holiday", "auto", "heat", "comfort", "eco", "emergency heat", "temp_auto", "valve"] // using "heat" and "emergency heat" for consistency, 01 is defined as manual in documentation 05 is defined as Boost in documentation
                                 def thermostatMode = thermostatModes[fncmd]
                                 logDebug "${device.displayName} mode is <b>${thermostatMode}</b> (<b>dp=${dp}</b> fncmd=${fncmd})"
                                 sendEvent(name: "thermostatMode", value: thermostatMode)
@@ -449,7 +450,7 @@ def parse(String description) {
                 case 0x05 :    // BRT-100 ?
                     if (settings?.txtEnable) log.info "${device.displayName} configuration is done. Result: 0x${fncmd}"
                     break
-                case 0x06 :
+                case 0x06 :    // thermostatOperatingState
                     switch (getModelGroup()) {
                         case 'TRV07' :
                             if (settings?.txtEnable) {log.info "${device.displayName} thermostatOperatingState is: ${fncmd==1 ? 'heating' : 'idle'}"}
