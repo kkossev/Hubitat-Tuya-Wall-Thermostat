@@ -46,9 +46,8 @@
  * ver. 1.3.5  2023-11-23 vnistor  - (dev. branch) - added childLock status, valve status, battery warning, thermostatMode, setHeatingSetpoint, Valve capability, Preferences: tempCalibration, minTemp, maxTemp to HY367; 
  * ver. 1.3.6  2023-11-24 kkossev  - (dev. branch) - The newly added events are declared as custom attributes;
  * ver. 1.3.7  2023-12-05 kkossev  - (dev. branch) - setting the hysteresis bug fix for AVATTO.
- * ver. 1.3.8  2023-12-08 kkossev  - (dev. branch) - thermostatOperatingState bug fix for BRT-100.
+ * ver. 1.3.8  2023-12-08 kkossev  - thermostatOperatingState bug fix for BRT-100.
  *
- *                                  TODO: 
  *                                  TODO: parse multiple Tuya DPs in one message;
  *                                  TODO: add option to send digital heatingSetpoint events every hour if no updates are received from the device;
  *                                  TODO: remove homeKitCompatibility option;
