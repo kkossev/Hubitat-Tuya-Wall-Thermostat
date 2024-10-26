@@ -49,13 +49,13 @@
  * ver. 1.3.7  2023-12-05 kkossev  - setting the hysteresis bug fix for AVATTO.
  * ver. 1.3.8  2023-12-08 kkossev  - thermostatOperatingState bug fix for BRT-100.
  * ver. 1.4.0  2024-02-28 kkossev  - Groovy lint
- * ver. 1.4.1  2024-10-26 kkossev  - (dev. branch) - commented out the fingerprints for _TZE200_b6wax7g0 _TZE200_ckud7u2l _TZE200_bvrlmajk _TZE200_rufdtfyv - they are now supported in the new 'Tuya Zigbee TRVs and Thermostats' driver
+ * ver. 1.4.1  2024-10-26 kkossev  - commented out the fingerprints for _TZE200_b6wax7g0 _TZE200_ckud7u2l _TZE200_bvrlmajk _TZE200_rufdtfyv - they are now supported in the new 'Tuya Zigbee TRVs and Thermostats' driver
  *
  *                                  TODO: update the community thread top post
 */
 
 def version() { '1.4.1' }
-def timeStamp() { '2024/10/26 11:28 AM' }
+def timeStamp() { '2024/10/26 11:45 AM' }
 
 import groovy.json.*
 import groovy.transform.Field
