@@ -50,12 +50,13 @@
  * ver. 1.3.8  2023-12-08 kkossev  - thermostatOperatingState bug fix for BRT-100.
  * ver. 1.4.0  2024-02-28 kkossev  - Groovy lint
  * ver. 1.4.1  2024-10-26 kkossev  - commented out the fingerprints for _TZE200_b6wax7g0 _TZE200_ckud7u2l _TZE200_bvrlmajk _TZE200_rufdtfyv - they are now supported in the new 'Tuya Zigbee TRVs and Thermostats' driver
+ * ver. 1.4.2  2025-05-25 kkossev  - HE platfrom version 2.4.1.x decimal preferences patch/workaround.
  *
- *                                  TODO: update the community thread top post
+ *                                  TODO: update the community thread top post 
 */
 
-def version() { '1.4.1' }
-def timeStamp() { '2024/10/26 11:45 AM' }
+def version() { '1.4.2' }
+def timeStamp() { '2025/05/25 7:47 AM' }
 
 import groovy.json.*
 import groovy.transform.Field
@@ -140,9 +141,9 @@ metadata {
             input (name: 'minTemp', type: 'number', title: '<b>Minimum Temperature</b>', description: '<i>The Minimum temperature setpoint that can be sent to the device</i>', defaultValue: 5, range: '0..60')
             input (name: 'maxTemp', type: 'number', title: '<b>Maximum Temperature</b>', description: '<i>The Maximum temperature setpoint that can be sent to the device</i>', defaultValue: 35, range: '15..95')
             input (name: 'modelGroupPreference', title: "Select a model group. Recommended value is <b>'Auto detect'</b>", /*description: "<i>Thermostat type</i>",*/ type: 'enum', options:['Auto detect':'Auto detect', 'AVATTO':'AVATTO', 'MOES':'MOES', 'BEOK':'BEOK', 'BRT-100':'BRT-100', 'HY367':'HY367', 'HY369':'HY369', 'TRV07':'TRV07'], defaultValue: 'Auto detect', required: false)
-            input (name: 'tempCalibration', type: 'decimal', title: '<b>Temperature Calibration</b>', description: '<i>Adjust measured temperature range: -9..9 C</i>', defaultValue: 0.0, range: '-9.0..9.0')
+            input (name: 'tempCalibration', type: 'decimal', title: '<b>Temperature Calibration</b>', description: '<i>Adjust measured temperature range: -9..9 C</i>', defaultValue: 0.0, range: '-9..9')
             if ((getModelGroup() in ['AVATTO', 'BEOK'])) {
-                input (name: 'hysteresis', type: 'decimal', title: '<b>Hysteresis</b>', description: '<i>Adjust switching differential range: 0.5 .. 5.0 C</i>', defaultValue: 1.0, range: '0.5..5.0')        // not available for BRT-100 !
+                input (name: 'hysteresis', type: 'decimal', title: '<b>Hysteresis</b>', description: '<i>Adjust switching differential range: 0.5 .. 5.0 C</i>', defaultValue: 1.0, range: '0..5')        // not available for BRT-100 !
             }
             if (isBEOK()) {
                 input (name: 'tempCeiling', type: 'number', title: '<b>Temperature Ceiling</b>', description: '<i>temperature limit parameter (unknown functionality) ></i>', defaultValue: 35, range: '35..95')    // step is 5 deg. for BEOK'; default 35?
